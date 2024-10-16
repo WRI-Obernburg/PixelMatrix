@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+html, body {
+	font: 14px/1.21 'Helvetica Neue', arial, sans-serif;
+	font-weight: 400;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	margin:0;
+	padding: 0;
+}
+
