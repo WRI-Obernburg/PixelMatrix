@@ -1,5 +1,6 @@
 #pragma once
-
+#define DEBUG_ESP_WIFI
+#define DEBUG_WIFI
 #include <Adafruit_NeoPixel.h>
 #include "MatrixManager.h"
 #include "Application.h"
@@ -42,50 +43,72 @@ public:
         pixels->show();
         Serial.begin(9600);
         mm = new MatrixManager(pixels);
-        cm = new ControlManager();
+        cm = new ControlManager([this](){
+            if((millis()-this->last_ws_update) > 500) {
+                this->send_ws_update();
+            }
+        });
         mm->set_tps(TPS);
         current_application = applications[activeApplication].createFunction();
-        current_application->init(mm);
+        current_application->init(mm, cm);
+
+        for (uint64_t i = 0; i < applications.size(); i++)
+        {
+            this->json_apps[i] = applications[i].name;
+        }
 
         // generate boot code between 0 255
+        randomSeed(ESP.getCycleCount());
         boot_code = random(0, 255);
         start_server();
     }
     void loop()
     {
-        if ((millis() - frame_timer) > (1000 / 1))
+        if ((millis() - frame_timer) > (1000 / 30))
         {
             frame_timer = millis();
-            current_application->draw(mm);
-            // system_draw();
+            current_application->draw(mm,cm);
+            if(cm->is_animation_running()) {
+                long long start = cm->__internal_get_animation_start();
+                float duration = cm->__internal_get_animation_duration();
+                long long time_running = millis()-start;
+            
+                bool result = cm->__internal_get_animation()->run(((time_running)/duration),mm);
+                
+                if(result && ((time_running)/(duration+cm->__interal_get_animation_keep_time())) > 1) {
+                    delete cm->__internal_get_animation();
+                    cm->__internal_set_animation(nullptr);
+                }
+            }
+            system_draw();
             pixels->show();
         }
 
-        if ((float)(millis() - game_loop_timer) > 1000.0f / mm->get_current_tps())
+        if ((millis() - game_loop_timer) > (1000 / mm->get_current_tps()))
         {
             game_loop_timer = millis();
             current_application->game_loop(mm, cm);
         }
 
-        if ((float)(millis() - ws_timer) > 1000)
+        if ((float)(millis() - ws_timer) > 700)
         {
             ws_timer = millis();
             ws->cleanupClients();
-            ws->pingAll();
+            if((millis() - last_ws_update) > 700) {
+                send_ws_update();
+            }
         }
-
-        
 
         dnsServer->processNextRequest();
     }
-    void register_application(Application *(*app)(), String name)
+    void register_application(Application *(*app)(), String name, String author)
     {
         applications.push_back({app,
-                                name});
+                                String(name+" by "+author)});
     }
     void switch_project(int id)
     {
-        if (id >= applications.size())
+        if ((unsigned)id >= applications.size())
         {
             Serial.println("Out of range\n");
             return;
@@ -93,11 +116,14 @@ public:
 
         current_application->clean_up(mm);
         delete current_application;
+        cm->reset();
         activeApplication = id;
         this->mm->set_tps(TPS);
+        mm->clear();
         current_application = applications[activeApplication].createFunction();
-        current_application->init(mm);
+        current_application->init(mm, cm);
         Serial.println("Switched to " + applications[activeApplication].name);
+        send_ws_update();
     }
 
     void handleWebsocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
@@ -109,6 +135,8 @@ public:
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            ///restart wifi
+
             break;
         case WS_EVT_DATA:
             this->handleWebSocketMessage(arg, data, len);
@@ -120,6 +148,20 @@ public:
     }
 
 private:
+    void send_ws_update()
+    {
+        last_ws_update = millis();
+        JSONVar package;
+        package["status"] = cm->get_status();
+        package["controls"] = cm->get_controls();
+        package["apps"] = this->json_apps;
+        package["active_id"] = this->activeApplication;
+
+        if(ws->count() > 0) {
+            ws->textAll(JSON.stringify(package));
+        }
+
+    }
     void start_server()
     {
         IPAddress APIP(172, 0, 0, 1); // Gateway
@@ -129,16 +171,26 @@ private:
         WiFi.mode(WIFI_AP);
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
 
-        // Setting currentSSID -> SSID in EEPROM or default one.
+        WiFi.scanNetworks();
 
-        WiFi.softAP(build_ssid());
+        int best_channel_id = 3;
+        for(int i=0;i<14;i++) {
+            if(WiFi.channel(i) == 0) {
+                best_channel_id = i;
+                break;
+            }
+        }
+
+        WiFi.softAP(build_ssid(),"", best_channel_id,0,1,100);
+        WiFi.setSleepMode(WIFI_NONE_SLEEP);
+        WiFi.printDiag(Serial);
+
         webServer = new AsyncWebServer(80);
         dnsServer = new DNSServer();
         ws = new AsyncWebSocket("/ws");
 
-        ws->onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len) {
-            this->handleWebsocketEvent(server,client,type,arg,data,len);
-        });
+        ws->onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
+                    { this->handleWebsocketEvent(server, client, type, arg, data, len); });
         webServer->addHandler(ws);
 
         // Start webserver
@@ -210,13 +262,13 @@ private:
         {
             String message = String((char *)data);
             JSONVar json = JSON.parse(message);
-            Serial.println("JSON parsed successfully");
             if (json.hasOwnProperty("command"))
             {
                 String command = json["command"];
                 if (command == "switch_project")
                 {
-                    int project = json["project"];
+                    int project = atoi(json["project"]);
+                    Serial.println(message);
                     switch_project(project);
                 }
                 else if (command == "action")
@@ -225,42 +277,42 @@ private:
 
                     if (action == "up")
                     {
-                        this->current_application->on_event(Event::UP);
+                        this->current_application->on_event(Event::UP,mm,cm);
                     }
 
                     if (action == "down")
                     {
-                        this->current_application->on_event(Event::DOWN);
+                        this->current_application->on_event(Event::DOWN,mm,cm);
                     }
 
                     if (action == "left")
                     {
-                        this->current_application->on_event(Event::LEFT);
+                        this->current_application->on_event(Event::LEFT,mm,cm);
                     }
 
                     if (action == "right")
                     {
-                        this->current_application->on_event(Event::RIGHT);
+                        this->current_application->on_event(Event::RIGHT,mm,cm);
                     }
 
                     if (action == "middle")
                     {
-                        this->current_application->on_event(Event::MIDDLE);
+                        this->current_application->on_event(Event::MIDDLE,mm,cm);
                     }
 
                     if (action == "a")
                     {
-                        this->current_application->on_event(Event::A);
+                        this->current_application->on_event(Event::A,mm,cm);
                     }
 
                     if (action == "b")
                     {
-                        this->current_application->on_event(Event::B);
+                        this->current_application->on_event(Event::B,mm,cm);
                     }
 
                     if (action == "c")
                     {
-                        this->current_application->on_event(Event::C);
+                        this->current_application->on_event(Event::C,mm,cm);
                     }
                 }
 
@@ -278,10 +330,12 @@ private:
     long long frame_timer = 0;
     long long game_loop_timer = 0;
     long long ws_timer = 0;
+    long long last_ws_update = 0;
 
     uint8_t boot_code = -1;
     std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
     AsyncWebServer *webServer;
     DNSServer *dnsServer;
     AsyncWebSocket *ws;
+    JSONVar json_apps;
 };

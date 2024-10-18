@@ -7,6 +7,7 @@
 
 #include <system/MatrixManager.h>
 #include <system/Application.h>
+#include "../animations/Splash.h"
 
 class RacingGame : public Application
 {
@@ -14,18 +15,24 @@ public:
     RacingGame()
     {
     }
-    void init(MatrixManager *mm) override
+    void init(MatrixManager *mm, ControlManager * cm) override
     {
         mm->set_tps(10);
         reset(mm);
+        cm->set_controls(button_left | button_right);
     }
     int loop_counter = 0;
+    int points = 0;
+    bool loose_state = false;
     void game_loop(MatrixManager *mm, ControlManager *cm) override
     {
-        if (mm->is_animation_running())
+        if(loose_state) return;
+        points++;
+        if (cm->is_animation_running())
             return;
         mm->set_tps(mm->get_current_tps() + 0.013f / (mm->get_current_tps() / 10));
-
+        cm->set_status("Deine Punkte: "+String(points));
+        randomSeed(ESP.getCycleCount());
         if (keep_state < 0 && random(0, 10) > 4)
         {
             if (random(0, 9) > 4)
@@ -48,8 +55,6 @@ public:
 
         keep_state--;
 
-        Serial.println(keep_state);
-
         for (int y = 0; y < 12; y++)
         {
             for (int x = 0; x < 12; x++)
@@ -65,7 +70,8 @@ public:
         }
 
         roadpieces[ref_point][12] = true;
-        roadpieces[ref_point + 5][12] = true;
+        int distance = points > 300 ? 4:5;
+        roadpieces[ref_point + distance][12] = true;
 
         // scrolling animation
         if (loop_counter >= 3)
@@ -86,12 +92,26 @@ public:
         if (roadpieces[car_x][car_y] || roadpieces[car_x][car_y + 1])
         {
             // loose
-            reset(mm);
+           loose_state = true;
+           cm->set_controls(button_a);
+           Animation * newAnimation = new Splash(car_x,car_y,MatrixManager::Color(255,0,0),mm);
+           cm->run_animation(newAnimation,1000,1000);
         }
     }
 
-    void draw(MatrixManager *mm)
+    void draw(MatrixManager *mm, ControlManager *cm)
     {
+
+        if(cm->is_animation_running()) return; 
+
+        if(loose_state) {
+            mm->clear();
+        
+
+            mm->number(1,4,this->points,MatrixManager::Color(255,0,0));
+            return;
+        }
+
         for (int y = 0; y < 12; y++)
         {
             for (int x = 0; x < 12; x++)
@@ -122,8 +142,24 @@ public:
     {
     }
 
-    void on_event(Event e)
+    void on_event(Event e,MatrixManager * mm, ControlManager * cm)
     {
+        if(e==Event::LEFT) {
+            if(this->car_x > 0)
+            this->car_x--;
+        }
+
+        if(e==Event::RIGHT) {
+            if(this->car_x < 11)
+            this->car_x++;
+        }
+
+        if(e==Event::A) {
+            loose_state = false;
+            reset(mm);
+            cm->set_controls(button_left | button_right);
+
+        }
     }
 
     void reset(MatrixManager * mm)
@@ -148,6 +184,7 @@ public:
             is_on[i] = false;
         }
         mm->set_tps(10);
+        points=0;
     }
 
     static Application *create()

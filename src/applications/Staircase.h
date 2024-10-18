@@ -7,7 +7,7 @@ public:
     Staircase()
     {
     }
-    void init(MatrixManager *mm) override
+    void init(MatrixManager *mm, ControlManager * cm) override
     {
         Serial.println("Hello world");
     }
@@ -15,7 +15,7 @@ public:
     {
     }
 
-    void draw(MatrixManager *mm)
+    void draw(MatrixManager *mm, ControlManager *cm)
     {
         /*   mm->set(0, 0, MatrixManager::Color(131, 187, 27));
            mm->set(1, 1, MatrixManager::Color(131, 187, 27));
@@ -86,7 +86,7 @@ public:
     void clean_up(MatrixManager *mm) override
     {
     }
-    void on_event(Event e)
+    void on_event(Event e,MatrixManager * mm, ControlManager * cm)
     {
     }
 

@@ -8,20 +8,23 @@ public:
         this->pixels = pixels;
     }
 
-    void set(int x, int y, uint32_t color)
+    void set(int x, int y, uint32_t color,bool ignoreOutOfRange = false)
     {
-        this->set(x, y, color >> 16, color >> 8 & 0xFF, color & 0xFF);
+        this->set(x, y, color >> 16, color >> 8 & 0xFF, color & 0xFF,ignoreOutOfRange);
     }
 
-    void off(int x, int y) {
-        this->set(x,y,0,0,0);
+    void off(int x, int y)
+    {
+        this->set(x, y, 0, 0, 0);
     }
 
-    void set(int x, int y, int r, int g, int b)
+    void set(int x, int y, int r, int g, int b,bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
-            Serial.println("Out of range\n");
+            if(!ignoreOutOfRange) {
+                Serial.println("Out of range\n");
+            }
             return;
         }
         int pixel = this->calculate_strip_pixel(x, y);
@@ -95,6 +98,159 @@ public:
         this->line(x1, y1, x2, y2, Color(r, g, b));
     }
 
+    // origin is bottom left
+    void number(int x, int y, unsigned int n, uint32_t color, int gap = 1)
+    {
+        int amount_of_digits = this->count_digits(n);
+        int needed_space = amount_of_digits * 3 + (amount_of_digits - 1) * gap;
+        if ((needed_space + x) > 12)
+        {
+            Serial.println("Not enough space available");
+            return;
+        }
+
+        if (n == 0)
+        { 
+            digit(x,y,n,color);
+        }
+        int pos = needed_space-3;
+        while (n > 0)
+        { 
+            digit(x+pos,y,n%10,color);
+            n /= 10;
+            pos-=3+gap;
+        }
+    }
+
+    void digit(int x, int y, int n, int r, int g, int b)
+    {
+        this->digit(x, y, n, Color(r, g, b));
+    }
+
+    // origin is bottom left
+    void digit(int x, int y, int n, uint32_t color)
+    {
+        switch (n)
+        {
+        case 0:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 4, color);
+            this->number_segment(x, y, 5, color);
+            break;
+        case 1:
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            break;
+        case 2:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 4, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 3:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 4:
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 5, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 5:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 5, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 6:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 4, color);
+            this->number_segment(x, y, 5, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 7:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            break;
+        case 8:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 3, color);
+            this->number_segment(x, y, 4, color);
+            this->number_segment(x, y, 5, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        case 9:
+            this->number_segment(x, y, 0, color);
+            this->number_segment(x, y, 1, color);
+            this->number_segment(x, y, 2, color);
+            this->number_segment(x, y, 5, color);
+            this->number_segment(x, y, 6, color);
+            break;
+        default:
+            Serial.println("Invalid digit");
+            break;
+        }
+    }
+
+    void number_segment(int x, int y, int s, uint32_t color)
+    {
+        switch (s)
+        {
+        case 0:
+            set(x, y + 4, color);
+            set(x + 1, y + 4, color);
+            set(x + 2, y + 4, color);
+            break;
+        case 1:
+            set(x + 2, y + 4, color);
+            set(x + 2, y + 3, color);
+            set(x + 2, y + 2, color);
+            break;
+        case 2:
+            set(x + 2, y + 2, color);
+            set(x + 2, y + 1, color);
+            set(x + 2, y, color);
+            break;
+        case 3:
+            set(x, y, color);
+            set(x + 1, y, color);
+            set(x + 2, y, color);
+            break;
+        case 4:
+            set(x, y, color);
+            set(x, y + 1, color);
+            set(x, y + 2, color);
+            break;
+        case 5:
+            set(x, y + 2, color);
+            set(x, y + 3, color);
+            set(x, y + 4, color);
+            break;
+        case 6:
+            set(x, y + 2, color);
+            set(x + 1, y + 2, color);
+            set(x + 2, y + 2, color);
+            break;
+        default:
+            Serial.println("Invalid Segment");
+            break;
+        }
+    }
+
     void rect(int x, int y, int width, int height, uint32_t color, bool filled = false)
     {
         width--;
@@ -127,11 +283,7 @@ public:
         {
             if (i == 0)
                 continue;
-            if (floor(cos(i) * radius + x) == 11)
-            {
-                Serial.println(i);
-            }
-            this->set(floor(cos(i) * radius + x), floor(sin(i) * radius + y), color);
+            this->set(floor(cos(i) * radius + x), floor(sin(i) * radius + y), color,true);
             if (filled)
             {
                 // TODO
@@ -169,13 +321,12 @@ public:
         return currentTPS;
     }
 
-    bool is_animation_running() {
-        return false; //TODO
-    }
+  
 
 private:
     Adafruit_NeoPixel *pixels;
     float currentTPS = 0;
+ 
 
     int calculate_strip_pixel(int x, int y)
     {
@@ -188,5 +339,10 @@ private:
         int bottom_row = floor((x + 1) / 2) * 23 + floor(x / 2);
         int height_correction = -((x % 2) * 2 - 1) * y;
         return bottom_row + height_correction;
+    }
+
+    unsigned count_digits(unsigned i)
+    {
+        return i > 0 ? (int)log10((double)i) + 1 : 1;
     }
 };

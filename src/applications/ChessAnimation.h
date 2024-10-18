@@ -8,12 +8,12 @@ public:
     {
     }
 
-    void init(MatrixManager *mm)
+    void init(MatrixManager *mm, ControlManager * cm)
     {
         mm->set_tps(2);
     }
 
-    void draw(MatrixManager *mm)
+    void draw(MatrixManager *mm, ControlManager *cm)
     {
         for (int i = 0; i < 144; i++)
         {
@@ -53,7 +53,7 @@ public:
     {
     }
 
-    void on_event(Event e)
+    void on_event(Event e,MatrixManager * mm, ControlManager * cm)
     {
     }
 

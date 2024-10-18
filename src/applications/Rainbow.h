@@ -6,8 +6,9 @@ class Rainbow: public Application {
         Rainbow() {
             
         }
-        void init(MatrixManager * mm) override {
+        void init(MatrixManager * mm, ControlManager * cm) override {
             mm->set_tps(30);
+            cm->set_controls(all_buttons);
         }
         void game_loop(MatrixManager * mm, ControlManager * cm) override {
            if(fade_down) {
@@ -23,7 +24,7 @@ class Rainbow: public Application {
 
         }
 
-        void draw(MatrixManager* mm) {
+        void draw(MatrixManager* mm, ControlManager *cm) {
         for(int x=0;x<12;x++) {
             mm->line(x,0,0,x,color_palette[x%4]);
             mm->line(11-x,11,11,11-x,color_palette[x%4]);
@@ -33,7 +34,7 @@ class Rainbow: public Application {
         void clean_up(MatrixManager * mm) override {
             
         }
-        void on_event(Event e) {
+        void on_event(Event e,MatrixManager * mm, ControlManager * cm) {
             
         }
 
