@@ -26,7 +26,9 @@ struct boot_code_result
     String emoji;
     uint32_t color;
 };
-
+ /**
+  * Controls the system and schedules the application.
+  */
 class SystemManager
 {
 public:
@@ -101,11 +103,24 @@ public:
 
         dnsServer->processNextRequest();
     }
+    /**
+     * Register an application to be visible
+     * to the user in the drop down menu.
+     * 
+     * @param app A references to a function which instantiates the application
+     * @param name The name of the application
+     * @param author The author of the application
+     */
     void register_application(Application *(*app)(), String name, String author)
     {
         applications.push_back({app,
                                 String(name+" by "+author)});
     }
+
+    /**
+     * Programmatically switch to a different application.
+     * @param id The index of the application to switch to
+     */
     void switch_project(int id)
     {
         if ((unsigned)id >= applications.size())
@@ -135,8 +150,6 @@ public:
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
-            ///restart wifi
-
             break;
         case WS_EVT_DATA:
             this->handleWebSocketMessage(arg, data, len);

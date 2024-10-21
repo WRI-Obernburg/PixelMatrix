@@ -1,10 +1,10 @@
 #include <system/MatrixManager.h>
 #include <system/Application.h>
 
-class Staircase : public Application
+class HelloRobo : public Application
 {
 public:
-    Staircase()
+    HelloRobo()
     {
     }
     void init(MatrixManager *mm, ControlManager * cm) override
@@ -92,6 +92,6 @@ public:
 
     static Application *create()
     {
-        return new Staircase();
+        return new HelloRobo();
     }
 };

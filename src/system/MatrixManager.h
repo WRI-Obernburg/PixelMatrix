@@ -1,5 +1,8 @@
 #pragma once
 #include <Adafruit_NeoPixel.h>
+/**
+ * Controls the matrix and provides methods to set pixels.
+ */
 class MatrixManager
 {
 public:
@@ -8,16 +11,39 @@ public:
         this->pixels = pixels;
     }
 
+    /**
+    * Set a specific pixel to a specific color.
+    * @param x x-coordinate of the pixel
+    * @param y y-coordinate of the pixel
+    * @param color color of the pixel
+    * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
+    */
     void set(int x, int y, uint32_t color,bool ignoreOutOfRange = false)
     {
         this->set(x, y, color >> 16, color >> 8 & 0xFF, color & 0xFF,ignoreOutOfRange);
     }
 
+
+
+    /**
+     * Turn off a specific pixel.
+     * @param x x-coordinate of the pixel
+     * @param y y-coordinate of the pixel
+     */
     void off(int x, int y)
     {
         this->set(x, y, 0, 0, 0);
     }
 
+    /**
+     * Set a specific pixel to a specific color.
+     * @param x x-coordinate of the pixel
+     * @param y y-coordinate of the pixel
+     * @param r red value of the pixel
+     * @param g green value of the pixel
+     * @param b blue value of the pixel
+     * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
+     */
     void set(int x, int y, int r, int g, int b,bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
@@ -31,11 +57,26 @@ public:
         pixels->setPixelColor(pixel, r, g, b);
     }
 
+    /**
+     * Set a specific pixel to a specific color with raw access to the pixel position.
+     * Most likely you don't need this function.
+     * @param n pixel position
+     * @param color color of the pixel
+     */
     void set_string(int n, uint32_t color)
     {
         this->set_string(n, color >> 16, color >> 8 & 0xFF, color & 0xFF);
     }
 
+    
+    /**
+     * Set a specific pixel to a specific color with raw access to the pixel position.
+     * Most likely you don't need this function.
+     * @param n pixel position
+     * @param r red value of the pixel
+     * @param g green value of the pixel
+     * @param b blue value of the pixel
+     */
     void set_string(int n, int r, int g, int b)
     {
         if (n > 143)
@@ -47,11 +88,23 @@ public:
         pixels->setPixelColor(pixel, r, g, b);
     }
 
+    /**
+     * Fill the complete matrix with a specific color.
+     * @param color color of the pixels
+     */
+
     void fill(uint32_t color)
     {
         this->fill(color >> 16, color >> 8 & 0xFF, color & 0xFF);
     }
 
+
+    /**
+     * Fill the complete matrix with a specific color.
+     * @param r red value of the pixels
+     * @param g green value of the pixels
+     * @param b blue value of the pixels
+     */
     void fill(int r, int g, int b)
     {
         for (int i = 0; i < 144; i++)
@@ -60,6 +113,10 @@ public:
         }
     }
 
+    /**
+     * Clear the complete matrix. By turning all the pixels off.
+     */
+
     void clear()
     {
         for (int i = 0; i < 144; i++)
@@ -67,6 +124,15 @@ public:
             pixels->setPixelColor(i, 0, 0, 0);
         }
     }
+
+    /**
+     * Draw a line from (x1,y1) to (x2,y2) with a specific color.
+     * @param x1 x-coordinate of the start point
+     * @param y1 y-coordinate of the start point
+     * @param x2 x-coordinate of the end point
+     * @param y2 y-coordinate of the end point
+     * @param color color of the line
+     */
 
     void line(int x1, int y1, int x2, int y2, uint32_t color)
     {
@@ -93,12 +159,32 @@ public:
         }
     }
 
+    /**
+     * Draw a line from (x1,y1) to (x2,y2) with a specific color.
+     * @param x1 x-coordinate of the start point
+     * @param y1 y-coordinate of the start point
+     * @param x2 x-coordinate of the end point
+     * @param y2 y-coordinate of the end point
+     * @param r red value of the line
+     * @param g green value of the line
+     * @param b blue value of the line
+     */
     void line(int x1, int y1, int x2, int y2, int r, int g, int b)
     {
         this->line(x1, y1, x2, y2, Color(r, g, b));
     }
 
-    // origin is bottom left
+    /**
+     * Draw a number at a specific position with a specific color.
+     * The origin of all numbers is bottom left. 
+     * You most likely won't fit more than three digits on the screen.
+     * Utilize for example scrolling to display more digits.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param n number to be drawn
+     * @param color color of the number
+     * @param gap (optional) gap between the digits
+     */
     void number(int x, int y, unsigned int n, uint32_t color, int gap = 1)
     {
         int amount_of_digits = this->count_digits(n);
@@ -122,12 +208,32 @@ public:
         }
     }
 
+    /**
+     *  Draw a digit at a specific position with a specific color.
+     * The origin of all digits is bottom left. 
+     * You most likely won't fit more than three digits on the screen.
+     * Utilize for example scrolling to display more digits.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param n number to be drawn
+     * @param r red value of the number
+     * @param g green value of the number
+     * @param b blue value of the number
+     */
+    
     void digit(int x, int y, int n, int r, int g, int b)
     {
         this->digit(x, y, n, Color(r, g, b));
     }
 
-    // origin is bottom left
+    /**
+     *  Draw a digit at a specific position with a specific color.
+     * The origin of all digits is bottom left. 
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param n number to be drawn
+     * @param color color of the number
+     */
     void digit(int x, int y, int n, uint32_t color)
     {
         switch (n)
@@ -206,6 +312,14 @@ public:
         }
     }
 
+    /**
+     * Draw a number segment at a specific position with a specific color.
+     * You probably want to use the @see digit function instead.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param s number segment to be drawn
+     * @param color color of the number segment
+     */
     void number_segment(int x, int y, int s, uint32_t color)
     {
         switch (s)
@@ -251,6 +365,16 @@ public:
         }
     }
 
+
+    /**
+     * Draw a rectangle at a specific position with a specific color.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param width width of the rectangle
+     * @param height height of the rectangle
+     * @param color color of the rectangle
+     * @param filled (optional) if true, the rectangle will be filled
+     */
     void rect(int x, int y, int width, int height, uint32_t color, bool filled = false)
     {
         width--;
@@ -272,12 +396,32 @@ public:
         this->line(x + width, y, x + width, y + height, color);
     }
 
+    /**
+     * Draw a rectangle at a specific position with a specific color.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param width width of the rectangle
+     * @param height height of the rectangle
+     * @param r red value of the rectangle
+     * @param g green value of the rectangle
+     * @param b blue value of the rectangle
+     * @param filled (optional) if true, the rectangle will be filled
+     */
     void rect(int x, int y, int width, int height, int r, int g, int b, bool filled = false)
     {
         this->rect(x, y, width, height, Color(r, g, b), filled);
     }
 
-    void circle(int x, int y, int radius, uint32_t color, bool filled = true, int u = 5)
+    /**
+     * Draw a circle at a specific position with a specific color.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param radius radius of the circle
+     * @param color color of the circle
+     * @param filled (optional) if true, the circle will be filled
+     * @param u (optional) number of steps for the circle (smaller numbers means higher fidelity)
+     */
+    void circle(int x, int y, int radius, uint32_t color, bool filled = true, int u = 2)
     {
         for (int i = 0; i < 360; i += u)
         {
@@ -291,16 +435,44 @@ public:
         }
     }
 
-    void circle(int x, int y, int radius, int r, int g, int b, bool filled = false, int u = 15)
+    /**
+     * Draw a circle at a specific position with a specific color.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param radius radius of the circle
+     * @param r red value of the circle
+     * @param g green value of the circle
+     * @param b blue value of the circle
+     * @param filled (optional) if true, the circle will be filled
+     * @param u (optional) number of steps for the circle (smaller numbers means higher fidelity)
+     */
+    
+
+    void circle(int x, int y, int radius, int r, int g, int b, bool filled = false, int u = 2)
     {
         this->circle(x, y, radius, Color(r, g, b), filled, u);
     }
+
+    /**
+     * Create a color from red, green and blue values.
+     * Useful for most helper functions.
+     * @param r red value
+     * @param g green value
+     * @param b blue value
+     */
 
     static uint32_t Color(uint8_t r, uint8_t g, uint8_t b)
     {
         return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
     }
 
+
+    /**
+     * Set the Ticks per Second for each application.
+     * This will adjust the frequency of the game_loop function.
+     * The draw calls won't be affected.
+     * @param tps Ticks per second
+     */
     void set_tps(float tps)
     {
         if (tps > 200)
@@ -315,6 +487,12 @@ public:
 
         this->currentTPS = tps;
     }
+
+    /**
+     * Get the ticks per second for
+     * the current animation
+     * @return Ticks per Second
+     */
 
     float get_current_tps()
     {

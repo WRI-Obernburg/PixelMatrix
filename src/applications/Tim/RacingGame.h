@@ -7,7 +7,7 @@
 
 #include <system/MatrixManager.h>
 #include <system/Application.h>
-#include "../animations/Splash.h"
+#include <animations/Splash.h>
 
 class RacingGame : public Application
 {
@@ -94,7 +94,7 @@ public:
             // loose
            loose_state = true;
            cm->set_controls(button_a);
-           Animation * newAnimation = new Splash(car_x,car_y,MatrixManager::Color(255,0,0),mm);
+           Animation * newAnimation = new Splash(car_x,car_y,MatrixManager::Color(255,0,0));
            cm->run_animation(newAnimation,1000,1000);
         }
     }

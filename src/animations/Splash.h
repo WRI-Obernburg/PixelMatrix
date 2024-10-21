@@ -2,7 +2,7 @@
 class Splash : public Animation
 {
 public:
-    Splash(int x, int y, uint32_t color, MatrixManager *mm, bool filled = true)
+    Splash(int x, int y, uint32_t color, bool filled = true)
     {
         this->x = x;
         this->y = y;
