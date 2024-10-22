@@ -40,7 +40,7 @@ public:
         // init system
         pixels = new Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
         pixels->begin();
-        pixels->setBrightness(150);
+        pixels->setBrightness(100);
         pixels->clear();
         pixels->show();
         Serial.begin(9600);

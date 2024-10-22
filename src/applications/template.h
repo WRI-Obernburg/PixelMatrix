@@ -1,3 +1,4 @@
+#pragma once
 #include <system/MatrixManager.h>
 #include <system/Application.h>
 // INCLUDE ANIMATIONS HERE (e.g. #include <animations/Splash.h>)

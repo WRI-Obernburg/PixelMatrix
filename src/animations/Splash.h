@@ -1,3 +1,4 @@
+#pragma once
 #include "../system/Animation.h"
 class Splash : public Animation
 {
