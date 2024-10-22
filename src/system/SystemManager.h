@@ -66,6 +66,8 @@ public:
     }
     void loop()
     {
+
+        
         if ((millis() - frame_timer) > (1000 / 30))
         {
             frame_timer = millis();
@@ -99,9 +101,16 @@ public:
             if((millis() - last_ws_update) > 700) {
                 send_ws_update();
             }
+
+           // Serial.println(ESP.getFreeHeap());
         }
 
+        yield();
+
         dnsServer->processNextRequest();
+
+        yield();
+
     }
     /**
      * Register an application to be visible
@@ -194,7 +203,7 @@ private:
             }
         }
 
-        WiFi.softAP(build_ssid(),"", best_channel_id,0,1,100);
+        WiFi.softAP(build_ssid(),"", best_channel_id,0,4,100);
         WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
 
@@ -246,7 +255,7 @@ private:
 
     void system_draw()
     {
-        if (WiFi.softAPgetStationNum() == 0)
+        if (WiFi.softAPgetStationNum() == 0 || ws->count() == 0)
         {
             mm->set(8, 0, get_boot_code_emoji(boot_code & 0x03).color);
             mm->set(9, 0, get_boot_code_emoji((boot_code >> 2) & 0x03).color);

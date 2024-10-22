@@ -73,6 +73,7 @@ public:
             return;
         }
 
+        //check if the new element collides with the food
         bool food_collision = (snake_pieces.back().x == food_position.x) && (snake_pieces.back().y == food_position.y);
 
         if (direction != -1 && !food_collision)
@@ -91,6 +92,7 @@ public:
     {
         if (cm->is_animation_running())
             return;
+            
         mm->clear();
 
         if (loose_state)

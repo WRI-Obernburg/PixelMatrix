@@ -40,6 +40,6 @@ private:
         int distanceToRight = 11 - x;
 
         // Return the maximum of these distances
-        return std::max({distanceToTop, distanceToBottom, distanceToLeft, distanceToRight});
+        return std::max({distanceToTop, distanceToBottom, distanceToLeft, distanceToRight})+2;
     }
 };
