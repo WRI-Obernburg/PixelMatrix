@@ -250,6 +250,7 @@ private:
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 4) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 6) & 0x03).emoji;
+        ssid += " ID: #"+String(random(100,999));
         return ssid;
     }
 
