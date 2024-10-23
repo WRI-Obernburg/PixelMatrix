@@ -69,6 +69,14 @@ public:
     void loop()
     {
 
+        yield();
+
+        dnsServer->processNextRequest();
+        ElegantOTA.loop();
+
+        if (this->ota_update) return;
+       
+
         if ((millis() - frame_timer) > (1000 / 30))
         {
             frame_timer = millis();
@@ -108,11 +116,6 @@ public:
 
             // Serial.println(ESP.getFreeHeap());
         }
-
-        yield();
-
-        dnsServer->processNextRequest();
-        ElegantOTA.loop();
 
         yield();
     }
@@ -160,6 +163,11 @@ public:
         switch (type)
         {
         case WS_EVT_CONNECT:
+            if(client->id() > 2) {
+                client->close(1000, "Too many clients");
+                return;
+            }
+            
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
             break;
         case WS_EVT_DISCONNECT:
@@ -200,6 +208,7 @@ private:
         WiFi.hostname("matrix");
 
         WiFi.mode(WIFI_AP);
+        delay(100);
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
 
         WiFi.scanNetworks();
@@ -232,19 +241,18 @@ private:
                                Serial.println("OTA update started!");
                                this->ota_update = true;
                                this->ota_error = false;
-                               this->ota_progress = 0;
-                           });
+                               this->ota_progress = 0; 
+                               this->mm->fill(0xFFFF00);
+                               this->pixels->show();
+                               });
         ElegantOTA.onProgress([this](size_t current, size_t final)
-                              {
-                                  this->ota_progress = (float)current / (float) final;
-                              });
+                              { this->ota_progress = (float)current / (float) final; });
         ElegantOTA.onEnd([this](bool success)
                          {
             if(success) {
                 Serial.println("OTA update finished!");
-                this->ota_update = false;
                 this->ota_error = false;
-                this->ota_progress = 0;
+                this->ota_progress = 1;
             } else {
                 Serial.println("OTA update failed!");
                 this->ota_update = false;
@@ -276,7 +284,6 @@ private:
       response->addHeader("Content-Encoding", "gzip");
       request->send(response); });
         }
-        
 
         webServer->begin();
     }
@@ -295,73 +302,12 @@ private:
     void system_draw()
     {
 
-        
         if (WiFi.softAPgetStationNum() == 0 || ws->count() == 0)
         {
             mm->set(8, 0, get_boot_code_emoji(boot_code & 0x03).color);
             mm->set(9, 0, get_boot_code_emoji((boot_code >> 2) & 0x03).color);
             mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
             mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
-        }
-
-        if (this->ota_update)
-        {
-            mm->clear();
-            if (this->ota_progress > (1 / 12.0f))
-            {
-                mm->line(0, 0, 0, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (2 / 12.0f))
-            {
-                mm->line(1, 0, 1, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (3 / 12.0f))
-            {
-                mm->line(2, 0, 2, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (4 / 12.0f))
-            {
-                mm->line(3, 0, 3, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (5 / 12.0f))
-            {
-                mm->line(4, 0, 4, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (6 / 12.0f))
-            {
-                mm->line(5, 0, 5, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (7 / 12.0f))
-            {
-                mm->line(6, 0, 6, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (8 / 12.0f))
-            {
-                mm->line(7, 0, 7, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (9 / 12.0f))
-            {
-                mm->line(8, 0, 8, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (10 / 12.0f))
-            {
-                mm->line(9, 0, 9, 11, 0x00FF00);
-            }
-            if (this->ota_progress > (11 / 12.0f))
-            {
-                mm->line(10, 0, 10, 11, 0x00FF00);
-            }
-            if (this->ota_progress >= (12 / 12.0f))
-            {
-                mm->line(11, 0, 11, 11, 0x00FF00);
-            }
-
-            mm->number(1, 4, (int)this->ota_progress * 100.0f, 0xFF0000);
-
-            if (this->ota_error)
-            {
-                mm->fill(0xFF0000);
-            }
         }
 
     }

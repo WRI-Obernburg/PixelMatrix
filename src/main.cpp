@@ -20,7 +20,7 @@ void setup()
   sm.register_application(CircleAnimation::create, "Circle Animation", "Tim");
   sm.init();
 
-  sm.switch_project(0);
+  sm.switch_project(5);
   Serial.println(ESP.getResetInfo());
  
 }
