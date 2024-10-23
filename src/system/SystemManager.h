@@ -74,8 +74,8 @@ public:
         dnsServer->processNextRequest();
         ElegantOTA.loop();
 
-        if (this->ota_update) return;
-       
+        if (this->ota_update)
+            return;
 
         if ((millis() - frame_timer) > (1000 / 30))
         {
@@ -163,11 +163,12 @@ public:
         switch (type)
         {
         case WS_EVT_CONNECT:
-            if(client->id() > 2) {
+            if (client->id() > 2)
+            {
                 client->close(1000, "Too many clients");
                 return;
             }
-            
+
             Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
             break;
         case WS_EVT_DISCONNECT:
@@ -243,8 +244,7 @@ private:
                                this->ota_error = false;
                                this->ota_progress = 0; 
                                this->mm->fill(0xFFFF00);
-                               this->pixels->show();
-                               });
+                               this->pixels->show(); });
         ElegantOTA.onProgress([this](size_t current, size_t final)
                               { this->ota_progress = (float)current / (float) final; });
         ElegantOTA.onEnd([this](bool success)
@@ -304,12 +304,33 @@ private:
 
         if (WiFi.softAPgetStationNum() == 0 || ws->count() == 0)
         {
-            mm->set(8, 0, get_boot_code_emoji(boot_code & 0x03).color);
-            mm->set(9, 0, get_boot_code_emoji((boot_code >> 2) & 0x03).color);
-            mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
-            mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
-        }
+            if (!is_code_hidden)
+            {
+                mm->set(8, 0, get_boot_code_emoji(boot_code & 0x03).color);
+                mm->set(9, 0, get_boot_code_emoji((boot_code >> 2) & 0x03).color);
+                mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
+                mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
 
+                if ((millis() - hide_connnect_code_timer) > (1000 * 20))
+                {
+                    hide_connnect_code_timer = millis();
+                    is_code_hidden = true;
+                }
+            }
+            else
+            {
+                if ((millis() - hide_connnect_code_timer) > (1000 * 4 * 60))
+                {
+                    hide_connnect_code_timer = millis();
+                    is_code_hidden = false;
+                }
+            }
+        }
+        else
+        {
+            is_code_hidden = false;
+            hide_connnect_code_timer = millis();
+        }
     }
 
     boot_code_result get_boot_code_emoji(uint8_t boot_code)
@@ -401,6 +422,8 @@ private:
     long long game_loop_timer = 0;
     long long ws_timer = 0;
     long long last_ws_update = 0;
+    long long hide_connnect_code_timer = 0;
+    bool is_code_hidden = false;
 
     uint8_t boot_code = -1;
     std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
