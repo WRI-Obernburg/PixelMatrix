@@ -1,6 +1,7 @@
 #pragma once
-#define DEBUG_ESP_WIFI
-#define DEBUG_WIFI
+#define ELEGANTOTA_USE_ASYNC_WEBSERVER 1
+#define ELEGANTOTA_DEBUG 1
+#define UPDATE_DEBUG 1
 #include <Adafruit_NeoPixel.h>
 #include "MatrixManager.h"
 #include "Application.h"
@@ -10,6 +11,7 @@
 #include <ESPAsyncWebServer.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
+#include <ElegantOTA.h>
 
 #define NUMPIXELS 144
 #define PIN D4
@@ -26,9 +28,9 @@ struct boot_code_result
     String emoji;
     uint32_t color;
 };
- /**
-  * Controls the system and schedules the application.
-  */
+/**
+ * Controls the system and schedules the application.
+ */
 class SystemManager
 {
 public:
@@ -45,11 +47,11 @@ public:
         pixels->show();
         Serial.begin(9600);
         mm = new MatrixManager(pixels);
-        cm = new ControlManager([this](){
+        cm = new ControlManager([this]()
+                                {
             if((millis()-this->last_ws_update) > 500) {
                 this->send_ws_update();
-            }
-        });
+            } });
         mm->set_tps(TPS);
         current_application = applications[activeApplication].createFunction();
         current_application->init(mm, cm);
@@ -67,19 +69,20 @@ public:
     void loop()
     {
 
-        
         if ((millis() - frame_timer) > (1000 / 30))
         {
             frame_timer = millis();
-            current_application->draw(mm,cm);
-            if(cm->is_animation_running()) {
+            current_application->draw(mm, cm);
+            if (cm->is_animation_running())
+            {
                 long long start = cm->__internal_get_animation_start();
                 float duration = cm->__internal_get_animation_duration();
-                long long time_running = millis()-start;
-            
-                bool result = cm->__internal_get_animation()->run(((time_running)/duration),mm);
-                
-                if(result && ((time_running)/(duration+cm->__interal_get_animation_keep_time())) > 1) {
+                long long time_running = millis() - start;
+
+                bool result = cm->__internal_get_animation()->run(((time_running) / duration), mm);
+
+                if (result && ((time_running) / (duration + cm->__interal_get_animation_keep_time())) > 1)
+                {
                     delete cm->__internal_get_animation();
                     cm->__internal_set_animation(nullptr);
                 }
@@ -98,24 +101,25 @@ public:
         {
             ws_timer = millis();
             ws->cleanupClients();
-            if((millis() - last_ws_update) > 700) {
+            if ((millis() - last_ws_update) > 700)
+            {
                 send_ws_update();
             }
 
-           // Serial.println(ESP.getFreeHeap());
+            // Serial.println(ESP.getFreeHeap());
         }
 
         yield();
 
         dnsServer->processNextRequest();
+        ElegantOTA.loop();
 
         yield();
-
     }
     /**
      * Register an application to be visible
      * to the user in the drop down menu.
-     * 
+     *
      * @param app A references to a function which instantiates the application
      * @param name The name of the application
      * @param author The author of the application
@@ -123,7 +127,7 @@ public:
     void register_application(Application *(*app)(), String name, String author)
     {
         applications.push_back({app,
-                                String(name+" by "+author)});
+                                String(name + " by " + author)});
     }
 
     /**
@@ -143,6 +147,7 @@ public:
         cm->reset();
         activeApplication = id;
         this->mm->set_tps(TPS);
+        cm->__internal_set_animation(nullptr);
         mm->clear();
         current_application = applications[activeApplication].createFunction();
         current_application->init(mm, cm);
@@ -169,6 +174,10 @@ public:
         }
     }
 
+    bool ota_update = false;
+    bool ota_error = false;
+    float ota_progress = 0;
+
 private:
     void send_ws_update()
     {
@@ -179,10 +188,10 @@ private:
         package["apps"] = this->json_apps;
         package["active_id"] = this->activeApplication;
 
-        if(ws->count() > 0) {
+        if (ws->count() > 0)
+        {
             ws->textAll(JSON.stringify(package));
         }
-
     }
     void start_server()
     {
@@ -196,14 +205,16 @@ private:
         WiFi.scanNetworks();
 
         int best_channel_id = 3;
-        for(int i=0;i<14;i++) {
-            if(WiFi.channel(i) == 0) {
+        for (int i = 0; i < 14; i++)
+        {
+            if (WiFi.channel(i) == 0)
+            {
                 best_channel_id = i;
                 break;
             }
         }
 
-        WiFi.softAP(build_ssid(),"", best_channel_id,0,4,100);
+        WiFi.softAP(build_ssid(), "", best_channel_id, 0, 4, 100);
         WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
 
@@ -214,6 +225,32 @@ private:
         ws->onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
                     { this->handleWebsocketEvent(server, client, type, arg, data, len); });
         webServer->addHandler(ws);
+
+        ElegantOTA.begin(webServer);
+        ElegantOTA.onStart([this]()
+                           {
+                               Serial.println("OTA update started!");
+                               this->ota_update = true;
+                               this->ota_error = false;
+                               this->ota_progress = 0;
+                           });
+        ElegantOTA.onProgress([this](size_t current, size_t final)
+                              {
+                                  this->ota_progress = (float)current / (float) final;
+                              });
+        ElegantOTA.onEnd([this](bool success)
+                         {
+            if(success) {
+                Serial.println("OTA update finished!");
+                this->ota_update = false;
+                this->ota_error = false;
+                this->ota_progress = 0;
+            } else {
+                Serial.println("OTA update failed!");
+                this->ota_update = false;
+                this->ota_error = true;
+                this->ota_progress = 0;
+            } });
 
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
@@ -239,6 +276,7 @@ private:
       response->addHeader("Content-Encoding", "gzip");
       request->send(response); });
         }
+        
 
         webServer->begin();
     }
@@ -250,12 +288,14 @@ private:
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 4) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 6) & 0x03).emoji;
-        ssid += " ID: #"+String(random(100,999));
+        ssid += " ID: #" + String(random(100, 999));
         return ssid;
     }
 
     void system_draw()
     {
+
+        
         if (WiFi.softAPgetStationNum() == 0 || ws->count() == 0)
         {
             mm->set(8, 0, get_boot_code_emoji(boot_code & 0x03).color);
@@ -263,6 +303,67 @@ private:
             mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
             mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
         }
+
+        if (this->ota_update)
+        {
+            mm->clear();
+            if (this->ota_progress > (1 / 12.0f))
+            {
+                mm->line(0, 0, 0, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (2 / 12.0f))
+            {
+                mm->line(1, 0, 1, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (3 / 12.0f))
+            {
+                mm->line(2, 0, 2, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (4 / 12.0f))
+            {
+                mm->line(3, 0, 3, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (5 / 12.0f))
+            {
+                mm->line(4, 0, 4, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (6 / 12.0f))
+            {
+                mm->line(5, 0, 5, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (7 / 12.0f))
+            {
+                mm->line(6, 0, 6, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (8 / 12.0f))
+            {
+                mm->line(7, 0, 7, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (9 / 12.0f))
+            {
+                mm->line(8, 0, 8, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (10 / 12.0f))
+            {
+                mm->line(9, 0, 9, 11, 0x00FF00);
+            }
+            if (this->ota_progress > (11 / 12.0f))
+            {
+                mm->line(10, 0, 10, 11, 0x00FF00);
+            }
+            if (this->ota_progress >= (12 / 12.0f))
+            {
+                mm->line(11, 0, 11, 11, 0x00FF00);
+            }
+
+            mm->number(1, 4, (int)this->ota_progress * 100.0f, 0xFF0000);
+
+            if (this->ota_error)
+            {
+                mm->fill(0xFF0000);
+            }
+        }
+
     }
 
     boot_code_result get_boot_code_emoji(uint8_t boot_code)
@@ -300,42 +401,42 @@ private:
 
                     if (action == "up")
                     {
-                        this->current_application->on_event(Event::UP,mm,cm);
+                        this->current_application->on_event(Event::UP, mm, cm);
                     }
 
                     if (action == "down")
                     {
-                        this->current_application->on_event(Event::DOWN,mm,cm);
+                        this->current_application->on_event(Event::DOWN, mm, cm);
                     }
 
                     if (action == "left")
                     {
-                        this->current_application->on_event(Event::LEFT,mm,cm);
+                        this->current_application->on_event(Event::LEFT, mm, cm);
                     }
 
                     if (action == "right")
                     {
-                        this->current_application->on_event(Event::RIGHT,mm,cm);
+                        this->current_application->on_event(Event::RIGHT, mm, cm);
                     }
 
                     if (action == "middle")
                     {
-                        this->current_application->on_event(Event::MIDDLE,mm,cm);
+                        this->current_application->on_event(Event::MIDDLE, mm, cm);
                     }
 
                     if (action == "a")
                     {
-                        this->current_application->on_event(Event::A,mm,cm);
+                        this->current_application->on_event(Event::A, mm, cm);
                     }
 
                     if (action == "b")
                     {
-                        this->current_application->on_event(Event::B,mm,cm);
+                        this->current_application->on_event(Event::B, mm, cm);
                     }
 
                     if (action == "c")
                     {
-                        this->current_application->on_event(Event::C,mm,cm);
+                        this->current_application->on_event(Event::C, mm, cm);
                     }
                 }
 
