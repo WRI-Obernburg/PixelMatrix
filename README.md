@@ -33,10 +33,13 @@ public:
 
     void draw(MatrixManager *mm, ControlManager *cm) override {
         // Draw application frame
+        // do not allocate new memory here
+        // runs at ~30 fps
     }
 
     void game_loop(MatrixManager *mm, ControlManager *cm) override {
         // Update application logic
+        // runs at the specified frequency in MatrixManager->set_tps (Ticks per Second)
     }
 
     void clean_up(MatrixManager *mm) override {
