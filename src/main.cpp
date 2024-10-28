@@ -19,7 +19,6 @@ void setup()
   sm.register_application(Snake::create, "Snake", "Tim");
   sm.register_application(Rainbow::create, "Rainbow", "Tim");
   sm.register_application(CircleAnimation::create, "Circle Animation", "Tim");
-  sm.register_application(Dev::create, "Dev", "Dev");
   sm.init();
 
   sm.switch_project(5);
