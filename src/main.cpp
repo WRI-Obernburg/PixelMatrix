@@ -6,7 +6,6 @@
 #include "applications/Tim/Rainbow.h"
 #include "applications/Tim/Snake.h"
 #include "applications/Tim/CircleAnimation.h"
-#include "applications/Dev.h"
 
 SystemManager sm;
 #define DEBUG_WIFI
