@@ -167,7 +167,7 @@ public:
         switch (type)
         {
         case WS_EVT_CONNECT:
-            if (client->id() > 2)
+            if (client->id() > 5)
             {
                 client->close(1000, "Too many clients");
                 return;
