@@ -1,29 +1,27 @@
 #pragma once
-#include <Adafruit_NeoPixel.h>
+#include <ws2812_i2s.h>
 /**
  * Controls the matrix and provides methods to set pixels.
  */
 class MatrixManager
 {
 public:
-    MatrixManager(Adafruit_NeoPixel *pixels)
+    MatrixManager(Pixel_t *pixels)
     {
         this->pixels = pixels;
     }
 
     /**
-    * Set a specific pixel to a specific color.
-    * @param x x-coordinate of the pixel
-    * @param y y-coordinate of the pixel
-    * @param color color of the pixel
-    * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
-    */
-    void set(int x, int y, uint32_t color,bool ignoreOutOfRange = false)
+     * Set a specific pixel to a specific color.
+     * @param x x-coordinate of the pixel
+     * @param y y-coordinate of the pixel
+     * @param color color of the pixel
+     * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
+     */
+    void set(int x, int y, uint32_t color, bool ignoreOutOfRange = false)
     {
-        this->set(x, y, color >> 16, color >> 8 & 0xFF, color & 0xFF,ignoreOutOfRange);
+        this->set(x, y, color >> 16, color >> 8 & 0xFF, color & 0xFF, ignoreOutOfRange);
     }
-
-
 
     /**
      * Turn off a specific pixel.
@@ -44,17 +42,20 @@ public:
      * @param b blue value of the pixel
      * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
      */
-    void set(int x, int y, int r, int g, int b,bool ignoreOutOfRange = false)
+    void set(int x, int y, int r, int g, int b, bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
-            if(!ignoreOutOfRange) {
+            if (!ignoreOutOfRange)
+            {
                 Serial.println("Out of range\n");
             }
             return;
         }
         int pixel = this->calculate_strip_pixel(x, y);
-        pixels->setPixelColor(pixel, r, g, b);
+        pixels[pixel].R = r;
+        pixels[pixel].G = g;
+        pixels[pixel].B = b;
     }
 
     /**
@@ -68,7 +69,6 @@ public:
         this->set_string(n, color >> 16, color >> 8 & 0xFF, color & 0xFF);
     }
 
-    
     /**
      * Set a specific pixel to a specific color with raw access to the pixel position.
      * Most likely you don't need this function.
@@ -85,7 +85,9 @@ public:
             return;
         }
         int pixel = n;
-        pixels->setPixelColor(pixel, r, g, b);
+        pixels[pixel].R = r;
+        pixels[pixel].G = g;
+        pixels[pixel].B = b;
     }
 
     /**
@@ -98,7 +100,6 @@ public:
         this->fill(color >> 16, color >> 8 & 0xFF, color & 0xFF);
     }
 
-
     /**
      * Fill the complete matrix with a specific color.
      * @param r red value of the pixels
@@ -109,7 +110,9 @@ public:
     {
         for (int i = 0; i < 144; i++)
         {
-            pixels->setPixelColor(i, r, g, b);
+            pixels[i].R = r;
+            pixels[i].G = g;
+            pixels[i].B = b;
         }
     }
 
@@ -121,7 +124,9 @@ public:
     {
         for (int i = 0; i < 144; i++)
         {
-            pixels->setPixelColor(i, 0, 0, 0);
+            pixels[i].R = 0;
+            pixels[i].G = 0;
+            pixels[i].B = 0;
         }
     }
 
@@ -176,7 +181,7 @@ public:
 
     /**
      * Draw a number at a specific position with a specific color.
-     * The origin of all numbers is bottom left. 
+     * The origin of all numbers is bottom left.
      * You most likely won't fit more than three digits on the screen.
      * Utilize for example scrolling to display more digits.
      * @param x x-coordinate of the position
@@ -196,21 +201,39 @@ public:
         }
 
         if (n == 0)
-        { 
-            digit(x,y,n,color);
+        {
+            digit(x, y, n, color);
         }
-        int pos = needed_space-3;
+        int pos = needed_space - 3;
         while (n > 0)
-        { 
-            digit(x+pos,y,n%10,color);
+        {
+            digit(x + pos, y, n % 10, color);
             n /= 10;
-            pos-=3+gap;
+            pos -= 3 + gap;
         }
     }
 
     /**
+     * Draw a number at a specific position with a specific color.
+     * The origin of all numbers is bottom left.
+     * You most likely won't fit more than three digits on the screen.
+     * Utilize for example scrolling to display more digits.
+     * @param x x-coordinate of the position
+     * @param y y-coordinate of the position
+     * @param n number to be drawn
+     * @param r red value of the number
+     * @param g green value of the number
+     * @param b blue value of the number
+     * @param gap (optional) gap between the digits
+     */
+    void number(int x, int y, unsigned int n, int r, int g, int b, int gap = 1)
+    {
+        this->number(x, y, n, Color(r, g, b), gap);
+    }
+
+    /**
      *  Draw a digit at a specific position with a specific color.
-     * The origin of all digits is bottom left. 
+     * The origin of all digits is bottom left.
      * You most likely won't fit more than three digits on the screen.
      * Utilize for example scrolling to display more digits.
      * @param x x-coordinate of the position
@@ -220,7 +243,7 @@ public:
      * @param g green value of the number
      * @param b blue value of the number
      */
-    
+
     void digit(int x, int y, int n, int r, int g, int b)
     {
         this->digit(x, y, n, Color(r, g, b));
@@ -228,7 +251,7 @@ public:
 
     /**
      *  Draw a digit at a specific position with a specific color.
-     * The origin of all digits is bottom left. 
+     * The origin of all digits is bottom left.
      * @param x x-coordinate of the position
      * @param y y-coordinate of the position
      * @param n number to be drawn
@@ -365,7 +388,6 @@ public:
         }
     }
 
-
     /**
      * Draw a rectangle at a specific position with a specific color.
      * @param x x-coordinate of the position
@@ -427,7 +449,7 @@ public:
         {
             if (i == 0)
                 continue;
-            this->set(floor(cos(i) * radius + x), floor(sin(i) * radius + y), color,true);
+            this->set(floor(cos(i) * radius + x), floor(sin(i) * radius + y), color, true);
             if (filled)
             {
                 // TODO
@@ -446,7 +468,6 @@ public:
      * @param filled (optional) if true, the circle will be filled
      * @param u (optional) number of steps for the circle (smaller numbers means higher fidelity)
      */
-    
 
     void circle(int x, int y, int radius, int r, int g, int b, bool filled = false, int u = 2)
     {
@@ -465,7 +486,6 @@ public:
     {
         return ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
     }
-
 
     /**
      * Set the Ticks per Second for each application.
@@ -499,12 +519,9 @@ public:
         return currentTPS;
     }
 
-  
-
 private:
-    Adafruit_NeoPixel *pixels;
+    Pixel_t *pixels;
     float currentTPS = 0;
- 
 
     int calculate_strip_pixel(int x, int y)
     {

@@ -12,6 +12,7 @@
 #include "static_files.h"
 #include <Arduino_JSON.h>
 #include <ElegantOTA.h>
+#include <ws2812_i2s.h>
 
 #define NUMPIXELS 144
 #define PIN D4
@@ -39,13 +40,14 @@ public:
     }
     void init()
     {
-        // init system
-        pixels = new Adafruit_NeoPixel(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
-        pixels->begin();
-        pixels->setBrightness(100);
-        pixels->clear();
-        pixels->show();
+
         Serial.begin(9600);
+        // init system
+        pixels = new Pixel_t[144];
+        ledstrip = new WS2812();
+        ledstrip->init(144);
+        ledstrip->show(pixels, 2.0f);
+
         mm = new MatrixManager(pixels);
         cm = new ControlManager([this]()
                                 {
@@ -74,30 +76,32 @@ public:
         dnsServer->processNextRequest();
         ElegantOTA.loop();
 
-        if (this->ota_update)
-            return;
-
-        if ((millis() - frame_timer) > (1000 / 30))
+        if ((millis() - frame_timer) > (1000 / 50))
         {
             frame_timer = millis();
-            current_application->draw(mm, cm);
-            if (cm->is_animation_running())
+            if (!ota_update)
             {
-                long long start = cm->__internal_get_animation_start();
-                float duration = cm->__internal_get_animation_duration();
-                long long time_running = millis() - start;
-
-                bool result = cm->__internal_get_animation()->run(((time_running) / duration), mm);
-
-                if (result && ((time_running) / (duration + cm->__interal_get_animation_keep_time())) > 1)
+                current_application->draw(mm, cm);
+                if (cm->is_animation_running())
                 {
-                    delete cm->__internal_get_animation();
-                    cm->__internal_set_animation(nullptr);
+                    long long start = cm->__internal_get_animation_start();
+                    float duration = cm->__internal_get_animation_duration();
+                    long long time_running = millis() - start;
+
+                    bool result = cm->__internal_get_animation()->run(((time_running) / duration), mm);
+
+                    if (result && ((time_running) / (duration + cm->__interal_get_animation_keep_time())) > 1)
+                    {
+                        delete cm->__internal_get_animation();
+                        cm->__internal_set_animation(nullptr);
+                    }
                 }
             }
             system_draw();
-            pixels->show();
+            ledstrip->show(pixels, 2.0f);
         }
+        if (ota_update)
+            return;
 
         if ((millis() - game_loop_timer) > (1000 / mm->get_current_tps()))
         {
@@ -105,11 +109,11 @@ public:
             current_application->game_loop(mm, cm);
         }
 
-        if ((float)(millis() - ws_timer) > 700)
+        if ((float)(millis() - ws_timer) > 300)
         {
             ws_timer = millis();
             ws->cleanupClients();
-            if ((millis() - last_ws_update) > 700)
+            if ((millis() - last_ws_update) > 300)
             {
                 send_ws_update();
             }
@@ -208,7 +212,7 @@ private:
 
         WiFi.hostname("matrix");
 
-        WiFi.mode(WIFI_AP);
+        //  WiFi.mode(WIFI_AP);
         delay(100);
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
 
@@ -243,8 +247,7 @@ private:
                                this->ota_update = true;
                                this->ota_error = false;
                                this->ota_progress = 0; 
-                               this->mm->fill(0xFFFF00);
-                               this->pixels->show(); });
+                               this->mm->fill(0xFFFF00); });
         ElegantOTA.onProgress([this](size_t current, size_t final)
                               { this->ota_progress = (float)current / (float) final; });
         ElegantOTA.onEnd([this](bool success)
@@ -290,6 +293,7 @@ private:
 
     String build_ssid()
     {
+
         String ssid = "Matrix ";
         ssid += get_boot_code_emoji(boot_code & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
@@ -301,6 +305,66 @@ private:
 
     void system_draw()
     {
+
+        if (ota_update)
+        {
+            mm->clear();
+            if (ota_progress > 0)
+            {
+                mm->line(0, 0, 0, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (1 / 12.0f))
+            {
+                mm->line(1, 0, 1, 11, MatrixManager::Color(0, 255, 0));
+            }
+
+            if (ota_progress > (2 / 12.0f))
+            {
+                mm->line(2, 0, 2, 11, MatrixManager::Color(0, 255, 0));
+            }
+
+            if (ota_progress > (3 / 12.0f))
+            {
+                mm->line(3, 0, 3, 11, MatrixManager::Color(0, 255, 0));
+            }
+
+            if (ota_progress > (4 / 12.0f))
+            {
+                mm->line(4, 0, 4, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (5 / 12.0f))
+            {
+                mm->line(5, 0, 5, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (6 / 12.0f))
+            {
+                mm->line(6, 0, 6, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (7 / 12.0f))
+            {
+                mm->line(7, 0, 7, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (8 / 12.0f))
+            {
+                mm->line(8, 0, 8, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (9 / 12.0f))
+            {
+                mm->line(9, 0, 9, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (10 / 12.0f))
+            {
+                mm->line(10, 0, 10, 11, MatrixManager::Color(0, 255, 0));
+            }
+            if (ota_progress > (11 / 12.0f))
+            {
+                mm->line(11, 0, 11, 11, MatrixManager::Color(0, 255, 0));
+            }
+
+            mm->number(1, 4, floor(ota_progress * 100.0f), MatrixManager::Color(255, 0, 0));
+
+            return;
+        }
 
         if (WiFi.softAPgetStationNum() == 0 || ws->count() == 0)
         {
@@ -412,7 +476,6 @@ private:
         }
     }
 
-    Adafruit_NeoPixel *pixels;
     MatrixManager *mm;
     std::vector<InternalApp> applications;
     Application *current_application = nullptr;
@@ -431,4 +494,8 @@ private:
     DNSServer *dnsServer;
     AsyncWebSocket *ws;
     JSONVar json_apps;
+    // pixel buffer
+    Pixel_t *pixels;
+    int brightness = 100;
+    WS2812 *ledstrip;
 };
