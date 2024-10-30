@@ -19,14 +19,57 @@ export default function App() {
 	const [isCEnabled, setIsCEnabled] = useState(true);
 
 	useEffect(()=>{
-		console.log("hello world");
+		document.addEventListener('keydown', (e)=>checkKey(e,ws));
+
+		return ()=>{
+			document.removeEventListener('keydown', (e)=>checkKey(e,ws));
+		}
+
+	},[ws]);
+
+	useEffect(()=>{
 		initWS();
 
 	},[]);
 
+	function checkKey(e,ws) {
+	
+		if (e.keyCode == '38') {
+			// up arrow
+			command('up',ws)
+			e.preventDefault();
+			e.stopPropagation();
+		}
+		else if (e.keyCode == '40') {
+			// down arrow
+			command('down',ws)
+			e.preventDefault();
+			e.stopPropagation();
+		}
+		else if (e.keyCode == '37') {
+		   // left arrow
+		   command('left',ws)
+		   e.preventDefault();
+			e.stopPropagation();
+		}
+		else if (e.keyCode == '39') {
+		   // right arrow
+		   command('right',ws)
+		   e.preventDefault();
+			e.stopPropagation();
+		}
+		else if (e.keyCode == '32') {
+			command('middle',ws)
+			e.preventDefault();
+			e.stopPropagation();
+		}
+
+	
+	}
+
 	function initWS() {
-		const gateway = `ws://${window.location.hostname}/ws`;
-		//const gateway = `ws://matrix.local/ws`;
+		//const gateway = `ws://${window.location.hostname}/ws`;
+		const gateway = `ws://matrix.local/ws`;
 
 		console.log('Trying to open a WebSocket connection…');
     	let websocket = new WebSocket(gateway);
@@ -74,8 +117,10 @@ export default function App() {
 	}
 
 
-	function command(command) {
+	function command(command,ws) {
 		console.log(command);
+		console.log(ws);
+
 		if(ws!=null && ws.readyState === WebSocket.OPEN) {
 			ws.send(JSON.stringify({
 				command: "action",
@@ -85,7 +130,6 @@ export default function App() {
 	}
 
 	function switchApplication(event) {
-		console.log(event.target.value);
 		if(ws!=null && ws.readyState === WebSocket.OPEN) {
 			ws.send(JSON.stringify({
 				command: "switch_project",
@@ -107,7 +151,6 @@ export default function App() {
 				{
 
 					apps.map((app,i) => {
-						console.log(i);
 						return <option value={i}>{app}</option>
 					})
 				}
@@ -121,22 +164,22 @@ export default function App() {
 
 			<div class="w-full flex flex-col justify-center mt-4 gap-3 self-center items-center">
 				<div class="flex w-full justify-center flex-row">
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isUpEnabled?"flex":"hidden")} onclick={()=>command('up')}>↑</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isUpEnabled?"flex":"hidden")} onclick={()=>command('up',ws)}>↑</div>
 				</div>
 				<div class="flex w-full justify-center flex-row gap-3">
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isLeftEnabled?"flex":"hidden")} onclick={()=>command('left')}>←</div>
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isMiddleEnabled?"flex":"hidden")} onclick={()=>command('middle')}>◯</div>
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isRightEnabled?"flex":"hidden")} onclick={()=>command('right')}>→</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isLeftEnabled?"flex":"hidden")} onclick={()=>command('left',ws)}>←</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isMiddleEnabled?"flex":"hidden")} onclick={()=>command('middle',ws)}>◯</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isRightEnabled?"flex":"hidden")} onclick={()=>command('right',ws)}>→</div>
 					
 				</div>
 				<div class="flex w-full justify-center flex-row">
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isDownEnabled?"flex":"hidden")} onclick={()=>command('down')}>↓</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isDownEnabled?"flex":"hidden")} onclick={()=>command('down',ws)}>↓</div>
 				</div>
 
 				<div class="flex w-full justify-center flex-row gap-3 mt-6">
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isAEnabled?"flex":"hidden")} onclick={()=>command('a')}>A</div>
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isBEnabled?"flex":"hidden")} onclick={()=>command('b')}>B</div>
-					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isCEnabled?"flex":"hidden")} onclick={()=>command('c')}>C</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isAEnabled?"flex":"hidden")} onclick={()=>command('a',ws)}>A</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isBEnabled?"flex":"hidden")} onclick={()=>command('b',ws)}>B</div>
+					<div class={"font-bold w-36 h-24 bg-green-500 rounded text-center items-center justify-center text-3xl hover:bg-green-600 "+(isCEnabled?"flex":"hidden")} onclick={()=>command('c',ws)}>C</div>
 
 				</div>
 

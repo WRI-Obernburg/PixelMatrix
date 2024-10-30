@@ -375,7 +375,7 @@ private:
                 mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
                 mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
 
-                if ((millis() - hide_connnect_code_timer) > (1000 * 20))
+                if ((millis() - hide_connnect_code_timer) > (1000 * 30))
                 {
                     hide_connnect_code_timer = millis();
                     is_code_hidden = true;
