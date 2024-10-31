@@ -7,6 +7,8 @@
 #include "applications/Tim/Snake.h"
 #include "applications/Tim/CircleAnimation.h"
 #include "applications/Tim/Pumpkin.h"
+#include "applications/Totem.h"
+#include "applications/PixelRunner.h"
 
 SystemManager sm;
 #define DEBUG_WIFI
@@ -21,6 +23,8 @@ void setup()
   sm.register_application(Rainbow::create, "Rainbow", "Tim");
   sm.register_application(CircleAnimation::create, "Circle Animation", "Tim");
   sm.register_application(Pumpkin::create, "Pumpkin", "Tim");
+  sm.register_application(Totem::create, "Totem", "Insert name here");
+  sm.register_application(PixelRunner::create, "PixelRunner", "PixelForge");
   sm.init();
 
   sm.switch_project(5);
