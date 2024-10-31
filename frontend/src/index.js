@@ -68,8 +68,8 @@ export default function App() {
 	}
 
 	function initWS() {
-		//const gateway = `ws://${window.location.hostname}/ws`;
-		const gateway = `ws://matrix.local/ws`;
+		const gateway = `ws://${window.location.hostname}/ws`;
+		//const gateway = `ws://matrix.local/ws`;
 
 		console.log('Trying to open a WebSocket connection…');
     	let websocket = new WebSocket(gateway);

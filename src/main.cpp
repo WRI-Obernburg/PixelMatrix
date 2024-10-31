@@ -6,6 +6,7 @@
 #include "applications/Tim/Rainbow.h"
 #include "applications/Tim/Snake.h"
 #include "applications/Tim/CircleAnimation.h"
+#include "applications/Tim/Pumpkin.h"
 
 SystemManager sm;
 #define DEBUG_WIFI
@@ -19,6 +20,7 @@ void setup()
   sm.register_application(Snake::create, "Snake", "Tim");
   sm.register_application(Rainbow::create, "Rainbow", "Tim");
   sm.register_application(CircleAnimation::create, "Circle Animation", "Tim");
+  sm.register_application(Pumpkin::create, "Pumpkin", "Tim");
   sm.init();
 
   sm.switch_project(5);
