@@ -126,7 +126,7 @@ void cButton(MatrixManager *mm, ControlManager *cm) {
 }
 
 private:
-int levels[5][36][12] = {
+int levels[4][36][12] = {
 
     {
         {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
