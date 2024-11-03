@@ -24,11 +24,11 @@ void setup()
   sm.register_application(CircleAnimation::create, "Circle Animation", "Tim");
   sm.register_application(Pumpkin::create, "Pumpkin", "Tim");
   sm.register_application(Totem::create, "Totem", "Insert name here");
+  sm.register_application(PixelRunner::create, "PixelRunner", "Pixel Runners");
   sm.init();
 
   sm.switch_project(5);
   Serial.println(ESP.getResetInfo());
- 
 }
 
 void loop()
