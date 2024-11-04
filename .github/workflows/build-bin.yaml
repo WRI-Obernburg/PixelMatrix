@@ -23,8 +23,8 @@ jobs:
       - name: Build PlatformIO Project
         run: pio run
 
-      - name: Download build files
-        uses: actions/download-artifact@v3
+      - name: Upload build files
+        uses: actions/upload-artifact@v3
         with:
           path: .pio/build/d1_wroom_02/
           name: firmware.bin
