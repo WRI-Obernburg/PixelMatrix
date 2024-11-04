@@ -7,7 +7,7 @@
 #include "applications/Tim/Snake.h"
 #include "applications/Tim/CircleAnimation.h"
 #include "applications/Tim/Pumpkin.h"
-#include "applications/Totem.h"
+#include "applications/Totem/Totem.h"
 #include "applications/PixelRunner.h"
 
 SystemManager sm;
