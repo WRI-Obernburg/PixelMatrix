@@ -53,7 +53,6 @@ public:
 
     void reset(MatrixManager *mm)
     {
-        mm->clear();
         player_x = 1;
         player_y = 1;
         toggle = false;
@@ -61,12 +60,13 @@ public:
 
     void loose(MatrixManager *mm, ControlManager *cm)
     {
-        cm->run_animation(new Splash(player_x, player_y, MatrixManager::Color(250, 0, 125), true), 1000, 1000);
+        cm->run_animation(new Splash(player_x, player_y, MatrixManager::Color(250, 0, 125)), 1000, 1000);
         reset(mm);
     }
 
     void draw(MatrixManager *mm, ControlManager *cm)
     {
+        if(cm->is_animation_running()) return;
 
         if (final_level_done)
         {
@@ -136,6 +136,8 @@ public:
     }
     void on_event(Event e, MatrixManager *mm, ControlManager *cm)
     {
+        if(cm->is_animation_running()) return;
+
         if (e == Event::RIGHT)
         {
             while (true)
