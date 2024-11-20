@@ -1,4 +1,5 @@
 # PixelMatrix
+![1730395261623 2040x1536](https://github.com/user-attachments/assets/baf4c97d-f4ce-478e-8573-d94cbe39a0a4)
 
 ## Project Overview
 PixelMatrix is a project that uses an LED matrix to display various animations and games. The project leverages an ESP8266 for controlling the LED matrix, allowing for dynamic and interactive displays. The system is designed to be extensible, making it easy to add new animations and applications.
