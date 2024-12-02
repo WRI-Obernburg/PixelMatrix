@@ -8,27 +8,184 @@
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
 #include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
 #include <ElegantOTA.h>
 #include <ws2812_i2s.h>
+#include "wrench/wrench.h"
+#include <LittleFS.h>
+#include <ESPAsyncWebServer.h>
+#define FTP_SERVER_DEBUG 1
+#include <animations/Splash.h>
 
 #define NUMPIXELS 144
 #define PIN D4
 #define TPS 30
 
+
+struct ControlElements
+{
+    ControlManager* cm;
+    MatrixManager* mm;
+};
+
 struct InternalApp
 {
-    Application *(*createFunction)();
+    Application*(*createFunction)();
     String name;
+    bool is_wrench = false;
+    String wrench_code = "";
 };
+
+namespace wrench_wrapper
+{
+    void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        char buf[1024];
+        for (int i = 0; i < argn; ++i)
+        {
+            printf("%s", argv[i].asString(buf, 1024));
+        }
+    }
+
+    void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 1) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        char buf[128];
+        ce->cm->set_status(argv[0].asString(buf, 128));
+        wr_makeInt(&retVal, 1);
+    }
+
+    void get_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        wr_makeString(c, &retVal, ce->cm->get_status().c_str(), strlen(ce->cm->get_status().c_str()));
+    }
+
+    void get_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        wr_makeInt(&retVal, ce->cm->get_controls());
+    }
+
+    void set_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 1) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->cm->set_controls(argv[0].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void reset_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->cm->reset();
+        wr_makeInt(&retVal, 1);
+    }
+
+    void is_animation_running(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        wr_makeInt(&retVal, ce->cm->is_animation_running());
+    }
+
+    /*void run_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr) {
+        if (argn != 2) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        Animation* anim = new Animation(); // Assuming Animation has a default constructor
+        ce->cm->run_animation(anim, argv[0].asInt(), argv[1].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+    */
+
+    void stop_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->cm->stop_animation();
+        wr_makeInt(&retVal, 1);
+    }
+
+    void set_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 3) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->set(argv[0].asInt(), argv[1].asInt(), argv[2].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void off_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 2) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->off(argv[0].asInt(), argv[1].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void fill_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 1) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->fill(argv[0].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void clear_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->clear();
+        wr_makeInt(&retVal, 1);
+    }
+
+    void draw_line(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 5) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->line(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 5) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void draw_circle(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 4) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->circle(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    void draw_number(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 4) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        ce->mm->number(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+
+    //animations
+    void run_animation_splash(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 6) return;
+        ControlElements* ce = static_cast<ControlElements*>(usr);
+        Splash* anim = new Splash(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt() > 0);
+        ce->cm->run_animation(anim, argv[4].asInt(), argv[5].asInt());
+        wr_makeInt(&retVal, 1);
+    }
+}
 
 struct boot_code_result
 {
     String emoji;
     uint32_t color;
 };
+
 /**
  * Controls the system and schedules the application.
  */
@@ -38,9 +195,9 @@ public:
     SystemManager()
     {
     }
+
     void init()
     {
-
         Serial.begin(9600);
         // init system
         pixels = new Pixel_t[144];
@@ -50,10 +207,17 @@ public:
 
         mm = new MatrixManager(pixels);
         cm = new ControlManager([this]()
-                                {
-            if((millis()-this->last_ws_update) > 500) {
+        {
+            if ((millis() - this->last_ws_update) > 500)
+            {
                 this->send_ws_update();
-            } });
+            }
+        });
+        ce = {
+            cm,
+            mm
+        };
+
         mm->set_tps(TPS);
         current_application = applications[activeApplication].createFunction();
         current_application->init(mm, cm);
@@ -64,13 +228,37 @@ public:
         }
 
         // generate boot code between 0 255
-        randomSeed(ESP.getCycleCount());
+        randomSeed(EspClass::getCycleCount());
         boot_code = random(0, 255);
         start_server();
+
+        applications.push_back({
+            nullptr,
+            "Wrench",
+            true,
+            ""
+        });
+
+        // wrench
+     //   WRState* w = wr_newState(); // create the state
+
+      //  register_wrench_functions(w, &ce);
+
+     //   unsigned char* outBytes; // compiled code is alloc'ed
+      //  int outLen;
+
+      //  int err = wr_compile(wrenchCode, strlen(wrenchCode), &outBytes, &outLen); // compile it
+      //  if (err == 0)
+      //  {
+      //      wr_run(w, outBytes, outLen); // load and run the code!
+      //      free(outBytes); // clean up
+      //  }
+
+      //  wr_destroyState(w);
     }
+
     void loop()
     {
-
         yield();
 
         dnsServer->processNextRequest();
@@ -122,7 +310,9 @@ public:
         }
 
         yield();
+
     }
+
     /**
      * Register an application to be visible
      * to the user in the drop down menu.
@@ -131,10 +321,12 @@ public:
      * @param name The name of the application
      * @param author The author of the application
      */
-    void register_application(Application *(*app)(), String name, String author)
+    void register_application(Application*(*app)(), String name, String author)
     {
-        applications.push_back({app,
-                                String(name + " by " + author)});
+        applications.push_back({
+            app,
+            String(name + " by " + author)
+        });
     }
 
     /**
@@ -162,7 +354,8 @@ public:
         send_ws_update();
     }
 
-    void handleWebsocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
+    void handleWebsocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
+                              unsigned char* data, size_t len)
     {
         switch (type)
         {
@@ -173,7 +366,8 @@ public:
                 return;
             }
 
-            Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            Serial.printf("WebSocket client #%u connected from %s\n", client->id(),
+                          client->remoteIP().toString().c_str());
             break;
         case WS_EVT_DISCONNECT:
             Serial.printf("WebSocket client #%u disconnected\n", client->id());
@@ -192,6 +386,33 @@ public:
     float ota_progress = 0;
 
 private:
+    static void register_wrench_functions(WRState* w, ControlElements* ce)
+    {
+        wr_registerFunction(w, "print", wrench_wrapper::print, &ce); // bind a function
+
+        wr_registerFunction(w, "set_status", wrench_wrapper::set_status, ce);
+        wr_registerFunction(w, "get_status", wrench_wrapper::get_status, ce);
+        wr_registerFunction(w, "get_controls", wrench_wrapper::get_controls, ce);
+        wr_registerFunction(w, "set_controls", wrench_wrapper::set_controls, ce);
+        wr_registerFunction(w, "reset_controls", wrench_wrapper::reset_controls, ce);
+        wr_registerFunction(w, "is_animation_running", wrench_wrapper::is_animation_running, ce);
+        // wr_registerFunction(w, "run_animation", wrench_wrapper::run_animation, ce);
+        wr_registerFunction(w, "stop_animation", wrench_wrapper::stop_animation, ce);
+
+        wr_registerFunction(w, "set_pixel", wrench_wrapper::set_pixel, ce);
+        wr_registerFunction(w, "off_pixel", wrench_wrapper::off_pixel, ce);
+        wr_registerFunction(w, "fill_matrix", wrench_wrapper::fill_matrix, ce);
+        wr_registerFunction(w, "clear_matrix", wrench_wrapper::clear_matrix, ce);
+        wr_registerFunction(w, "draw_line", wrench_wrapper::draw_line, ce);
+        wr_registerFunction(w, "draw_rect", wrench_wrapper::draw_rect, ce);
+        wr_registerFunction(w, "draw_circle", wrench_wrapper::draw_circle, ce);
+        wr_registerFunction(w, "draw_number", wrench_wrapper::draw_number, ce);
+
+        //animations
+        wr_registerFunction(w, "run_animation_splash", wrench_wrapper::run_animation_splash, ce);
+
+    }
+
     void send_ws_update()
     {
         last_ws_update = millis();
@@ -206,6 +427,7 @@ private:
             ws->textAll(JSON.stringify(package));
         }
     }
+
     void start_server()
     {
         IPAddress APIP(172, 0, 0, 1); // Gateway
@@ -236,64 +458,82 @@ private:
         dnsServer = new DNSServer();
         ws = new AsyncWebSocket("/ws");
 
-        ws->onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
-                    { this->handleWebsocketEvent(server, client, type, arg, data, len); });
+        ws->onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
+                           unsigned char* data, size_t len)
+        {
+            this->handleWebsocketEvent(server, client, type, arg, data, len);
+        });
         webServer->addHandler(ws);
 
         ElegantOTA.begin(webServer);
         ElegantOTA.onStart([this]()
-                           {
-                               Serial.println("OTA update started!");
-                               this->ota_update = true;
-                               this->ota_error = false;
-                               this->ota_progress = 0; 
-                               this->mm->fill(0xFFFF00); });
+        {
+            Serial.println("OTA update started!");
+            this->ota_update = true;
+            this->ota_error = false;
+            this->ota_progress = 0;
+            this->mm->fill(0xFFFF00);
+        });
         ElegantOTA.onProgress([this](size_t current, size_t final)
-                              { this->ota_progress = (float)current / (float) final; });
+        {
+            this->ota_progress = (float)current / (float)final;
+        });
         ElegantOTA.onEnd([this](bool success)
-                         {
-            if(success) {
+        {
+            if (success)
+            {
                 Serial.println("OTA update finished!");
                 this->ota_error = false;
                 this->ota_progress = 1;
-            } else {
+            }
+            else
+            {
                 Serial.println("OTA update failed!");
                 this->ota_update = false;
                 this->ota_error = true;
                 this->ota_progress = 0;
-            } });
+            }
+        });
 
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
 
-        webServer->onNotFound([](AsyncWebServerRequest *request)
-                              {
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response); });
+        webServer->onNotFound([](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse_P(
+                200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader("Content-Encoding", "gzip");
+            request->send(response);
+        });
 
-        webServer->on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-                      {
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response); });
+        webServer->on("/", HTTP_GET, [](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse_P(
+                200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader("Content-Encoding", "gzip");
+            request->send(response);
+        });
 
         // Create a route handler for each of the build artifacts
         for (int i = 0; i < static_files::num_of_files; i++)
         {
-            webServer->on(static_files::files[i].path, HTTP_GET, [i](AsyncWebServerRequest *request)
-                          {
-      AsyncWebServerResponse *response = request->beginResponse_P(200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response); });
+            webServer->on(static_files::files[i].path, HTTP_GET, [i](AsyncWebServerRequest* request)
+            {
+                AsyncWebServerResponse* response = request->beginResponse_P(
+                    200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
+                response->addHeader("Content-Encoding", "gzip");
+                request->send(response);
+            });
         }
 
         webServer->begin();
+
+
+
     }
 
     String build_ssid()
     {
-
         String ssid = "Matrix ";
         ssid += get_boot_code_emoji(boot_code & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
@@ -305,7 +545,6 @@ private:
 
     void system_draw()
     {
-
         if (ota_update)
         {
             mm->clear();
@@ -410,12 +649,12 @@ private:
         return {"", 0};
     }
 
-    void handleWebSocketMessage(void *arg, unsigned char *data, size_t len)
+    void handleWebSocketMessage(void* arg, unsigned char* data, size_t len)
     {
-        AwsFrameInfo *info = (AwsFrameInfo *)arg;
+        AwsFrameInfo* info = (AwsFrameInfo*)arg;
         if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
         {
-            String message = String((char *)data);
+            String message = String((char*)data);
             JSONVar json = JSON.parse(message);
             if (json.hasOwnProperty("command"))
             {
@@ -476,10 +715,11 @@ private:
         }
     }
 
-    MatrixManager *mm;
+    MatrixManager* mm;
     std::vector<InternalApp> applications;
-    Application *current_application = nullptr;
-    ControlManager *cm = nullptr;
+    Application* current_application = nullptr;
+    ControlManager* cm = nullptr;
+    ControlElements ce;
     int activeApplication = 0;
     long long frame_timer = 0;
     long long game_loop_timer = 0;
@@ -490,12 +730,19 @@ private:
 
     uint8_t boot_code = -1;
     std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
-    AsyncWebServer *webServer;
-    DNSServer *dnsServer;
-    AsyncWebSocket *ws;
+    AsyncWebServer* webServer;
+    DNSServer* dnsServer;
+    AsyncWebSocket* ws;
     JSONVar json_apps;
+
     // pixel buffer
-    Pixel_t *pixels;
+    Pixel_t* pixels;
     int brightness = 100;
-    WS2812 *ledstrip;
+    WS2812* ledstrip;
+    const char* wrenchCode = "print( \"Hello World!\\n\" );"
+        "for( var i=0; i<10; i++ )    "
+        "{                            "
+        "    print( i );              "
+        "}                            "
+        "print(\"\\n\");              ";
 };

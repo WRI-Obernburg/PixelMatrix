@@ -25,6 +25,10 @@ public:
 
         return progress > 1;
     }
+    static Splash *create()
+    {
+        return new ChessAnimation();
+    }
 
 private:
     int x, y;
