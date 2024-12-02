@@ -7,8 +7,8 @@
     <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
     <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
     <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
-    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexRemoved" />
     <option name="/Default/Environment/UserInterface/HierarchyView/ViewStyle/@EntryValue" value="SuperTypes" type="string" />
+    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexRemoved" />
   </component>
   <component name="CMakeProjectFlavorService">
     <option name="flavorId" value="CMakePlainProjectFlavor" />
@@ -24,7 +24,13 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c51ab8a3-6ac2-4990-9a69-68894d259210" name="Changes" comment="init wrench" />
+    <list default="true" id="22111b51-28c4-4ea3-b6a7-6864a409cc72" name="Changes" comment="added idea files">
+      <change afterPath="$PROJECT_DIR$/docs/Backplate.pdf" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/LEDPlate.pdf" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/SidePieces.3mf" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -47,45 +53,18 @@
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "timarnoldev"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;timarnoldev&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/WRI-Obernburg/PixelMatrix.git",
-    "accountId": "23ec794f-9201-4d73-aa1c-716e752ddffa"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/WRI-Obernburg/PixelMatrix.git&quot;,
+    &quot;accountId&quot;: &quot;23ec794f-9201-4d73-aa1c-716e752ddffa&quot;
   }
-}]]></component>
-  <component name="PlatformioLocalSettings">
-    <option name="availableProjects">
-      <map>
-        <entry>
-          <key>
-            <ExternalProjectPojo>
-              <option name="name" value="PixelMatrix" />
-              <option name="path" value="$PROJECT_DIR$" />
-            </ExternalProjectPojo>
-          </key>
-          <value>
-            <list>
-              <ExternalProjectPojo>
-                <option name="name" value="PixelMatrix" />
-                <option name="path" value="$PROJECT_DIR$" />
-              </ExternalProjectPojo>
-            </list>
-          </value>
-        </entry>
-      </map>
-    </option>
-    <option name="projectSyncType">
-      <map>
-        <entry key="$PROJECT_DIR$" value="RE_IMPORT" />
-      </map>
-    </option>
-  </component>
+}</component>
   <component name="ProjectApplicationVersion">
     <option name="ide" value="CLion" />
     <option name="majorVersion" value="2024" />
@@ -110,7 +89,9 @@
     "RunOnceActivity.readMode.enableVisualFormatting": "true",
     "cf.first.check.clang-format": "false",
     "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "main",
     "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/T.Arnold/OneDrive - Walter Reis Stiftung/Dokumente/PlatformIO/Projects/PixelMatrix/docs",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -120,12 +101,12 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\T.Arnold\OneDrive - Walter Reis Stiftung\Dokumente\PlatformIO\Projects\PixelMatrix\docs" />
+    </key>
+  </component>
   <component name="RunManager">
-    <configuration default="true" type="CLionExternalRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="CLION.EXTERNAL.BUILD" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="PlatformIO" type="platformio" factoryName="PlatformIO Debug" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="PixelMatrix" TARGET_NAME="PlatformIO" CONFIG_NAME="PlatformIO">
       <method v="2" />
     </configuration>
@@ -139,7 +120,7 @@
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
-      <changelist id="c51ab8a3-6ac2-4990-9a69-68894d259210" name="Changes" comment="" />
+      <changelist id="22111b51-28c4-4ea3-b6a7-6864a409cc72" name="Changes" comment="added idea files" />
       <created>1732011541346</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
@@ -147,6 +128,7 @@
       <workItem from="1732011543087" duration="253000" />
       <workItem from="1732011820120" duration="21755000" />
       <workItem from="1733167154220" duration="1638000" />
+      <workItem from="1733168974766" duration="361000" />
     </task>
     <task id="LOCAL-00001" summary="init wrench">
       <option name="closed" value="true" />
