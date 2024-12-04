@@ -1,6 +1,4 @@
 # PixelMatrix
-![1730395261623 2040x1536](https://github.com/user-attachments/assets/baf4c97d-f4ce-478e-8573-d94cbe39a0a4)
-
 ***
 ## 📅 Programmierkurs Januar 2025 📅
 
@@ -13,6 +11,9 @@ Bei Interesse gerne per Email an info@wri-obernburg.de wenden.
 - 18.01.2025 10:00 Uhr - 15:30 Uhr: Programmierung mit anschließendem Showcase
 
 ***
+![1730395261623 2040x1536](https://github.com/user-attachments/assets/baf4c97d-f4ce-478e-8573-d94cbe39a0a4)
+
+
 
 
 ## Project Overview
