@@ -1,6 +1,20 @@
 # PixelMatrix
 ![1730395261623 2040x1536](https://github.com/user-attachments/assets/baf4c97d-f4ce-478e-8573-d94cbe39a0a4)
 
+***
+## 📅 Programmierkurs Januar 2025 📅
+
+Im Januar wird es wieder einen Programmierkurs im WRI Obernburg geben. Teilnehmen können alle, die am Wochenende zuvor eine LED Matrix gebaut haben, oder bereits eine besitzen.
+Bei Interesse gerne per Email an info@wri-obernburg.de wenden.
+
+### Termin:
+
+- 17.01.2025 14:00 Uhr - 18:00 Uhr: Brainstorming & Gruppenfindung
+- 18.01.2025 10:00 Uhr - 15:30 Uhr: Programmierung mit anschließendem Showcase
+
+***
+
+
 ## Project Overview
 PixelMatrix is a project that uses an LED matrix to display various animations and games. The project leverages an ESP8266 for controlling the LED matrix, allowing for dynamic and interactive displays. The system is designed to be extensible, making it easy to add new animations and applications.
 
