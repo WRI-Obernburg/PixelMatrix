@@ -9,6 +9,7 @@
 #include "applications/Tim/Pumpkin.h"
 #include "applications/Totem/Totem.h"
 #include "applications/PixelRunner.h"
+#include "applications/clock.h"
 
 SystemManager sm;
 #define DEBUG_WIFI
@@ -25,6 +26,7 @@ void setup()
   sm.register_application(Pumpkin::create, "Pumpkin", "Tim");
   sm.register_application(Totem::create, "Totem", "Insert name here");
   sm.register_application(PixelRunner::create, "PixelRunner", "Pixel Runners");
+  sm.register_application(clock::create, "Clock", "Anton");
   sm.init();
 
   sm.switch_project(5);
