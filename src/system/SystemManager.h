@@ -219,7 +219,8 @@ public:
         };
 
         mm->set_tps(TPS);
-        current_application = applications[activeApplication].createFunction();
+        current_application = applications[activeApplication].createFunction(); //TODO make sure to respect wrench code
+        current_internal_app = &applications[activeApplication];
         current_application->init(mm, cm);
 
         for (uint64_t i = 0; i < applications.size(); i++)
@@ -232,29 +233,25 @@ public:
         boot_code = random(0, 255);
         start_server();
 
+
+        const char *prg =
+  "void  init() {}"
+  "void  game_loop() {}"
+  "void  draw() {"
+  "set_pixel(0,0,0x00FF00);"
+  "}"
+  "void clean_up() {}"
+  "void on_event() {}";
+
         applications.push_back({
             nullptr,
             "Wrench",
             true,
-            ""
+            prg
+
         });
 
-        // wrench
-     //   WRState* w = wr_newState(); // create the state
 
-      //  register_wrench_functions(w, &ce);
-
-     //   unsigned char* outBytes; // compiled code is alloc'ed
-      //  int outLen;
-
-      //  int err = wr_compile(wrenchCode, strlen(wrenchCode), &outBytes, &outLen); // compile it
-      //  if (err == 0)
-      //  {
-      //      wr_run(w, outBytes, outLen); // load and run the code!
-      //      free(outBytes); // clean up
-      //  }
-
-      //  wr_destroyState(w);
     }
 
     void loop()
@@ -269,7 +266,12 @@ public:
             frame_timer = millis();
             if (!ota_update)
             {
-                current_application->draw(mm, cm);
+                if(current_internal_app->is_wrench)
+                {
+                    wr_callFunction(wc, "draw");
+                }else{
+                    current_application->draw(mm, cm);
+                }
                 if (cm->is_animation_running())
                 {
                     long long start = cm->__internal_get_animation_start();
@@ -341,15 +343,51 @@ public:
             return;
         }
 
-        current_application->clean_up(mm);
-        delete current_application;
+
+        if(w != nullptr)
+        {
+            wr_destroyState(w);
+            w = nullptr;
+        }
+
+        if(current_internal_app->is_wrench)
+        {
+            free(outBytes);
+        }else
+        {
+            current_application->clean_up(mm);
+            delete current_application;
+            current_internal_app = nullptr;
+        }
+
+
         cm->reset();
         activeApplication = id;
         this->mm->set_tps(TPS);
         cm->__internal_set_animation(nullptr);
         mm->clear();
-        current_application = applications[activeApplication].createFunction();
-        current_application->init(mm, cm);
+
+        current_internal_app = &applications[activeApplication];
+        if(current_internal_app->is_wrench)
+        {
+            w = wr_newState(); // create the state
+            register_wrench_functions(w, &ce);
+            int err = wr_compile(current_internal_app->wrench_code.c_str(), strlen(current_internal_app->wrench_code.c_str()), &outBytes, &outLen); // compile it
+              if (err == 0)
+              {
+                  wc = wr_run(w, outBytes, outLen); // load and run the code!
+                  // clean up
+                  WRValue* result = wr_callFunction(wc, "init");
+                  if ( !result )
+                  {
+                        Serial.println("Error calling function");
+                  }
+              }
+        }else
+        {
+            current_application = applications[activeApplication].createFunction();
+            current_application->init(mm, cm);
+        }
         Serial.println("Switched to " + applications[activeApplication].name);
         send_ws_update();
     }
@@ -718,6 +756,7 @@ private:
     MatrixManager* mm;
     std::vector<InternalApp> applications;
     Application* current_application = nullptr;
+    InternalApp* current_internal_app = nullptr;
     ControlManager* cm = nullptr;
     ControlElements ce;
     int activeApplication = 0;
@@ -739,10 +778,8 @@ private:
     Pixel_t* pixels;
     int brightness = 100;
     WS2812* ledstrip;
-    const char* wrenchCode = "print( \"Hello World!\\n\" );"
-        "for( var i=0; i<10; i++ )    "
-        "{                            "
-        "    print( i );              "
-        "}                            "
-        "print(\"\\n\");              ";
+    WRState* w = nullptr;
+    WRContext* wc = nullptr;
+    unsigned char* outBytes; // compiled code is alloc'ed
+    int outLen;
 };
