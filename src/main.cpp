@@ -11,7 +11,6 @@
 #include "applications/PixelRunner.h"
 
 SystemManager sm;
-#define DEBUG_WIFI
 
 void setup()
 {
@@ -27,7 +26,7 @@ void setup()
   sm.register_application(PixelRunner::create, "PixelRunner", "Pixel Runners");
   sm.init();
 
-  sm.switch_project(5);
+  sm.switch_project(9);
   Serial.println(ESP.getResetInfo());
 }
 

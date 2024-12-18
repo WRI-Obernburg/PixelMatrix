@@ -257,7 +257,7 @@ public:
      * @param n number to be drawn
      * @param color color of the number
      */
-    void digit(int x, int y, int n, uint32_t color)
+    void digit(const int x, const int y, const int n, uint32_t color)
     {
         switch (n)
         {

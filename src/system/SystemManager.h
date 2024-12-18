@@ -2,7 +2,6 @@
 #define ELEGANTOTA_USE_ASYNC_WEBSERVER 1
 #define ELEGANTOTA_DEBUG 1
 #define UPDATE_DEBUG 1
-#include <Adafruit_NeoPixel.h>
 #include "MatrixManager.h"
 #include "Application.h"
 #include <DNSServer.h>
@@ -12,10 +11,10 @@
 #include <Arduino_JSON.h>
 #include <ElegantOTA.h>
 #include <ws2812_i2s.h>
+#define WRENCH_COMPACT
+
 #include "wrench/wrench.h"
-#include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
-#define FTP_SERVER_DEBUG 1
 #include <animations/Splash.h>
 
 #define NUMPIXELS 144
@@ -34,12 +33,12 @@ struct InternalApp
     Application*(*createFunction)();
     String name;
     bool is_wrench = false;
-    String wrench_code = "";
+    const unsigned char* wrench_code = nullptr;
 };
 
 namespace wrench_wrapper
 {
-    void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         char buf[1024];
         for (int i = 0; i < argn; ++i)
@@ -48,7 +47,7 @@ namespace wrench_wrapper
         }
     }
 
-    void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 1) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -57,19 +56,19 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void get_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void get_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         wr_makeString(c, &retVal, ce->cm->get_status().c_str(), strlen(ce->cm->get_status().c_str()));
     }
 
-    void get_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void get_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         wr_makeInt(&retVal, ce->cm->get_controls());
     }
 
-    void set_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void set_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 1) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -77,14 +76,14 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void reset_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void reset_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         ce->cm->reset();
         wr_makeInt(&retVal, 1);
     }
 
-    void is_animation_running(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void is_animation_running(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         wr_makeInt(&retVal, ce->cm->is_animation_running());
@@ -99,14 +98,14 @@ namespace wrench_wrapper
     }
     */
 
-    void stop_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+   inline void stop_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         ce->cm->stop_animation();
         wr_makeInt(&retVal, 1);
     }
 
-    void set_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+   inline void set_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 3) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -114,7 +113,7 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void off_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void off_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 2) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -122,7 +121,7 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void fill_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void fill_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 1) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -130,14 +129,14 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void clear_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void clear_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         ControlElements* ce = static_cast<ControlElements*>(usr);
         ce->mm->clear();
         wr_makeInt(&retVal, 1);
     }
 
-    void draw_line(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void draw_line(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 5) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -145,7 +144,7 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 5) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -153,7 +152,7 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void draw_circle(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void draw_circle(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 4) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -161,7 +160,7 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    void draw_number(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void draw_number(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 4) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -170,7 +169,7 @@ namespace wrench_wrapper
     }
 
     //animations
-    void run_animation_splash(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void run_animation_splash(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 6) return;
         ControlElements* ce = static_cast<ControlElements*>(usr);
@@ -180,11 +179,14 @@ namespace wrench_wrapper
     }
 }
 
+
+
 struct boot_code_result
 {
     String emoji;
     uint32_t color;
 };
+const unsigned char prg[] = {0x00,0x05,0x01,0x00,0x00,0x3D,0x00,0x73,0xD3,0xB1,0x16,0x00,0x00,0x01,0x00,0x00,0x3E,0x00,0x56,0xF0,0xEE,0x84,0x00,0x00,0x01,0x00,0x00,0x3F,0x00,0x13,0xF4,0x8B,0xA8,0x00,0x00,0x01,0x00,0x00,0x4D,0x00,0x66,0xD3,0x1F,0x4B,0x00,0x00,0x01,0x00,0x00,0x4E,0x00,0x57,0x46,0xF9,0x14,0x00,0x00,0x01,0x02,0xEF,0x14,0x12,0x12,0x02,0x02,0x01,0x00,0xFF,0x00,0x00,0x06,0x03,0x44,0xD7,0xB5,0x99,0x12,0x12,0x12,0x44,0xAF,0x5B,0x1D};
 
 /**
  * Controls the system and schedules the application.
@@ -192,12 +194,18 @@ struct boot_code_result
 class SystemManager
 {
 public:
-    SystemManager()
-    {
-    }
 
     void init()
     {
+
+        applications.push_back({
+            nullptr,
+            "Wrench",
+            true,
+            prg
+        });
+
+
         Serial.begin(9600);
         // init system
         pixels = new Pixel_t[144];
@@ -223,7 +231,7 @@ public:
         current_internal_app = &applications[activeApplication];
         current_application->init(mm, cm);
 
-        for (uint64_t i = 0; i < applications.size(); i++)
+        for (int i = 0; i < applications.size(); i++)
         {
             this->json_apps[i] = applications[i].name;
         }
@@ -232,26 +240,6 @@ public:
         randomSeed(EspClass::getCycleCount());
         boot_code = random(0, 255);
         start_server();
-
-
-        const char *prg =
-  "void  init() {}"
-  "void  game_loop() {}"
-  "void  draw() {"
-  "set_pixel(0,0,0x00FF00);"
-  "}"
-  "void clean_up() {}"
-  "void on_event() {}";
-
-        applications.push_back({
-            nullptr,
-            "Wrench",
-            true,
-            prg
-
-        });
-
-
     }
 
     void loop()
@@ -259,17 +247,24 @@ public:
         yield();
 
         dnsServer->processNextRequest();
-        ElegantOTA.loop();
+        //ElegantOTA.loop();
 
         if ((millis() - frame_timer) > (1000 / 50))
         {
             frame_timer = millis();
             if (!ota_update)
             {
-                if(current_internal_app->is_wrench)
+                if (current_internal_app->is_wrench)
                 {
                     wr_callFunction(wc, "draw");
-                }else{
+                    if (wr_getLastError(w)!=0)
+                    {
+                        Serial.print("WREN Error: ");
+                        Serial.println(wr_getLastError(w));
+                    }
+                }
+                else
+                {
                     current_application->draw(mm, cm);
                 }
                 if (cm->is_animation_running())
@@ -289,6 +284,7 @@ public:
             }
             system_draw();
             ledstrip->show(pixels, 2.0f);
+
         }
         if (ota_update)
             return;
@@ -296,7 +292,19 @@ public:
         if ((millis() - game_loop_timer) > (1000 / mm->get_current_tps()))
         {
             game_loop_timer = millis();
+            if (current_internal_app->is_wrench)
+            {
+                wr_callFunction(wc, "game_loop");
+                if (wr_getLastError(w)!=0)
+                {
+                    Serial.print("WREN Error: ");
+                    Serial.println(wr_getLastError(w));
+                }
+            }
+            else
+            {
             current_application->game_loop(mm, cm);
+            }
         }
 
         if ((float)(millis() - ws_timer) > 300)
@@ -308,11 +316,10 @@ public:
                 send_ws_update();
             }
 
-            // Serial.println(ESP.getFreeHeap());
+            Serial.println(EspClass::getFreeHeap());
         }
 
         yield();
-
     }
 
     /**
@@ -327,7 +334,9 @@ public:
     {
         applications.push_back({
             app,
-            String(name + " by " + author)
+            String(name + " by " + author),
+            false,
+            nullptr
         });
     }
 
@@ -344,16 +353,21 @@ public:
         }
 
 
-        if(w != nullptr)
+        if (w != nullptr)
         {
+            Serial.println("WRENCH ACTIVE");
             wr_destroyState(w);
             w = nullptr;
         }
 
-        if(current_internal_app->is_wrench)
+
+
+        if (current_internal_app->is_wrench)
         {
+            Serial.println("WRENCH ACTIVE");
             free(outBytes);
-        }else
+        }
+        else
         {
             current_application->clean_up(mm);
             delete current_application;
@@ -368,22 +382,34 @@ public:
         mm->clear();
 
         current_internal_app = &applications[activeApplication];
-        if(current_internal_app->is_wrench)
+        if (current_internal_app->is_wrench)
         {
+            Serial.println("WRENCH ACTIVE");
             w = wr_newState(); // create the state
             register_wrench_functions(w, &ce);
-            int err = wr_compile(current_internal_app->wrench_code.c_str(), strlen(current_internal_app->wrench_code.c_str()), &outBytes, &outLen); // compile it
-              if (err == 0)
-              {
-                  wc = wr_run(w, outBytes, outLen); // load and run the code!
-                  // clean up
-                  WRValue* result = wr_callFunction(wc, "init");
-                  if ( !result )
-                  {
-                        Serial.println("Error calling function");
-                  }
-              }
-        }else
+
+            Serial.println("try to execute");
+
+            //output current_internal_app->wrench_code in hex to the console
+            for (int i = 0; i < 83; i++)
+                Serial.printf("%02X ", current_internal_app->wrench_code[i]);
+
+
+                wc = wr_run(w, current_internal_app->wrench_code, 83); // load and run the code!
+                //print wr_getLastError(w);
+                Serial.println(wr_getLastError(w));
+                // clean up
+                Serial.println("try to execute function init");
+
+                WRValue* result = wr_callFunction(wc, "init");
+                if (!result)
+                {
+                    Serial.println("Error calling function");
+                }
+
+
+        }
+        else
         {
             current_application = applications[activeApplication].createFunction();
             current_application->init(mm, cm);
@@ -424,6 +450,7 @@ public:
     float ota_progress = 0;
 
 private:
+
     static void register_wrench_functions(WRState* w, ControlElements* ce)
     {
         wr_registerFunction(w, "print", wrench_wrapper::print, &ce); // bind a function
@@ -448,8 +475,8 @@ private:
 
         //animations
         wr_registerFunction(w, "run_animation_splash", wrench_wrapper::run_animation_splash, ce);
-
     }
+
 
     void send_ws_update()
     {
@@ -503,7 +530,7 @@ private:
         });
         webServer->addHandler(ws);
 
-        ElegantOTA.begin(webServer);
+        /*ElegantOTA.begin(webServer);
         ElegantOTA.onStart([this]()
         {
             Serial.println("OTA update started!");
@@ -532,6 +559,7 @@ private:
                 this->ota_progress = 0;
             }
         });
+        */
 
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
@@ -564,10 +592,8 @@ private:
             });
         }
 
+
         webServer->begin();
-
-
-
     }
 
     String build_ssid()
@@ -652,17 +678,17 @@ private:
                 mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
                 mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
 
-                if ((millis() - hide_connnect_code_timer) > (1000 * 30))
+                if ((millis() - hide_connect_code_timer) > (1000 * 30))
                 {
-                    hide_connnect_code_timer = millis();
+                    hide_connect_code_timer = millis();
                     is_code_hidden = true;
                 }
             }
             else
             {
-                if ((millis() - hide_connnect_code_timer) > (1000 * 4 * 60))
+                if ((millis() - hide_connect_code_timer) > (1000 * 4 * 60))
                 {
-                    hide_connnect_code_timer = millis();
+                    hide_connect_code_timer = millis();
                     is_code_hidden = false;
                 }
             }
@@ -670,7 +696,7 @@ private:
         else
         {
             is_code_hidden = false;
-            hide_connnect_code_timer = millis();
+            hide_connect_code_timer = millis();
         }
     }
 
@@ -747,39 +773,37 @@ private:
                         this->current_application->on_event(Event::C, mm, cm);
                     }
                 }
-
-                // notifyClients(sensorReadings);
             }
         }
     }
 
-    MatrixManager* mm;
+    MatrixManager* mm = nullptr;
     std::vector<InternalApp> applications;
     Application* current_application = nullptr;
     InternalApp* current_internal_app = nullptr;
     ControlManager* cm = nullptr;
-    ControlElements ce;
+    ControlElements ce = {};
     int activeApplication = 0;
     long long frame_timer = 0;
     long long game_loop_timer = 0;
     long long ws_timer = 0;
     long long last_ws_update = 0;
-    long long hide_connnect_code_timer = 0;
+    long long hide_connect_code_timer = 0;
     bool is_code_hidden = false;
 
     uint8_t boot_code = -1;
     std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
-    AsyncWebServer* webServer;
-    DNSServer* dnsServer;
-    AsyncWebSocket* ws;
+    AsyncWebServer* webServer = nullptr;
+    DNSServer* dnsServer = nullptr;
+    AsyncWebSocket* ws = nullptr;
     JSONVar json_apps;
 
     // pixel buffer
-    Pixel_t* pixels;
+    Pixel_t* pixels = nullptr;
     int brightness = 100;
-    WS2812* ledstrip;
+    WS2812* ledstrip = nullptr;
     WRState* w = nullptr;
     WRContext* wc = nullptr;
-    unsigned char* outBytes; // compiled code is alloc'ed
-    int outLen;
+    unsigned char* outBytes = nullptr; // compiled code is alloc'ed
+    int outLen = 0;
 };
