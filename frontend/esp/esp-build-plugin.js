@@ -27,6 +27,9 @@ class ESPBuildPlugin {
                 // Asset is excluded
                 return false;
             }
+            if(file.indexOf("polyfills")!==-1) {
+                return false;
+            }
         }
         const path = this.compiler.options.output.path + '/' + file;
         const mimeType = mime.lookup(path)

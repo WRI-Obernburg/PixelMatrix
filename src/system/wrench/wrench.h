@@ -99,7 +99,7 @@ be more than enough.
 To really reduce RAM footprint this can be lowered considerably
 depending on usage. (consumes 8 bytes per stack entry)
 */
-#define WRENCH_DEFAULT_STACK_SIZE 64
+#define WRENCH_DEFAULT_STACK_SIZE 32
 // this costs a small bit of overhead whenever the stack is used, for
 // most applications it is not necessary, but will protect against
 // things like infinite recursion
@@ -415,7 +415,7 @@ void wr_destroyContext( WRContext* context );
 // how many bytes of memory must be allocated before the gc will run, default
 // set here, can be adjusted at runtime with the
 // wr_setAllocatedMemoryGCHint()
-#define WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT 4000
+#define WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT 3000
 void wr_setAllocatedMemoryGCHint( WRContext* context, const uint16_t bytes );
 
 /***************************************************************/

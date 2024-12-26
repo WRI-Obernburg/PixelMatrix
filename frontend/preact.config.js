@@ -13,7 +13,9 @@ export default {
                     exclude: [
                         '200.html',
                         'preact_prerender_data.json',
-                        'push-manifest.json'
+                        'push-manifest.json',
+                        "bundle.c4ec2.css.map",
+                        "/assets/keeppollyfills.txt",
                     ]
                 })
             ];

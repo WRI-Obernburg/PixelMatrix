@@ -1,6 +1,5 @@
 #pragma once
-#define ELEGANTOTA_USE_ASYNC_WEBSERVER 1
-#define ELEGANTOTA_DEBUG 1
+
 #define UPDATE_DEBUG 1
 #include "MatrixManager.h"
 #include "Application.h"
@@ -9,9 +8,10 @@
 #include <ESPAsyncTCP.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
-#include <ElegantOTA.h>
+//#include <ElegantOTA.h>
 #include <ws2812_i2s.h>
 #define WRENCH_COMPACT
+#include "WrenchWrapper.h"
 
 #include "wrench/wrench.h"
 #include <ESPAsyncWebServer.h>
@@ -22,11 +22,6 @@
 #define TPS 30
 
 
-struct ControlElements
-{
-    ControlManager* cm;
-    MatrixManager* mm;
-};
 
 struct InternalApp
 {
@@ -34,150 +29,9 @@ struct InternalApp
     String name;
     bool is_wrench = false;
     const unsigned char* wrench_code = nullptr;
+    int wrench_code_size = 0;
 };
 
-namespace wrench_wrapper
-{
-    inline void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        char buf[1024];
-        for (int i = 0; i < argn; ++i)
-        {
-            printf("%s", argv[i].asString(buf, 1024));
-        }
-    }
-
-    inline void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 1) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        char buf[128];
-        ce->cm->set_status(argv[0].asString(buf, 128));
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void get_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        wr_makeString(c, &retVal, ce->cm->get_status().c_str(), strlen(ce->cm->get_status().c_str()));
-    }
-
-    inline void get_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        wr_makeInt(&retVal, ce->cm->get_controls());
-    }
-
-    inline void set_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 1) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->cm->set_controls(argv[0].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void reset_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->cm->reset();
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void is_animation_running(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        wr_makeInt(&retVal, ce->cm->is_animation_running());
-    }
-
-    /*void run_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr) {
-        if (argn != 2) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        Animation* anim = new Animation(); // Assuming Animation has a default constructor
-        ce->cm->run_animation(anim, argv[0].asInt(), argv[1].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-    */
-
-   inline void stop_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->cm->stop_animation();
-        wr_makeInt(&retVal, 1);
-    }
-
-   inline void set_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 3) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->set(argv[0].asInt(), argv[1].asInt(), argv[2].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void off_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 2) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->off(argv[0].asInt(), argv[1].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void fill_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 1) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->fill(argv[0].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void clear_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->clear();
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void draw_line(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 5) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->line(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 5) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void draw_circle(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 4) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->circle(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    inline void draw_number(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 4) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        ce->mm->number(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-
-    //animations
-    inline void run_animation_splash(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
-    {
-        if (argn != 6) return;
-        ControlElements* ce = static_cast<ControlElements*>(usr);
-        Splash* anim = new Splash(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt() > 0);
-        ce->cm->run_animation(anim, argv[4].asInt(), argv[5].asInt());
-        wr_makeInt(&retVal, 1);
-    }
-}
 
 
 
@@ -186,7 +40,6 @@ struct boot_code_result
     String emoji;
     uint32_t color;
 };
-const unsigned char prg[] = {0x00,0x05,0x01,0x00,0x00,0x3D,0x00,0x73,0xD3,0xB1,0x16,0x00,0x00,0x01,0x00,0x00,0x3E,0x00,0x56,0xF0,0xEE,0x84,0x00,0x00,0x01,0x00,0x00,0x3F,0x00,0x13,0xF4,0x8B,0xA8,0x00,0x00,0x01,0x00,0x00,0x4D,0x00,0x66,0xD3,0x1F,0x4B,0x00,0x00,0x01,0x00,0x00,0x4E,0x00,0x57,0x46,0xF9,0x14,0x00,0x00,0x01,0x02,0xEF,0x14,0x12,0x12,0x02,0x02,0x01,0x00,0xFF,0x00,0x00,0x06,0x03,0x44,0xD7,0xB5,0x99,0x12,0x12,0x12,0x44,0xAF,0x5B,0x1D};
 
 /**
  * Controls the system and schedules the application.
@@ -194,16 +47,8 @@ const unsigned char prg[] = {0x00,0x05,0x01,0x00,0x00,0x3D,0x00,0x73,0xD3,0xB1,0
 class SystemManager
 {
 public:
-
     void init()
     {
-
-        applications.push_back({
-            nullptr,
-            "Wrench",
-            true,
-            prg
-        });
 
 
         Serial.begin(9600);
@@ -257,9 +102,9 @@ public:
                 if (current_internal_app->is_wrench)
                 {
                     wr_callFunction(wc, "draw");
-                    if (wr_getLastError(w)!=0)
+                    if (wr_getLastError(w) != 0)
                     {
-                        Serial.print("WREN Error: ");
+                        Serial.print(F("WREN Error when drawing: "));
                         Serial.println(wr_getLastError(w));
                     }
                 }
@@ -273,9 +118,11 @@ public:
                     float duration = cm->__internal_get_animation_duration();
                     long long time_running = millis() - start;
 
-                    bool result = cm->__internal_get_animation()->run(((time_running) / duration), mm);
+                    bool result = cm->__internal_get_animation()->
+                                      run((static_cast<float>(time_running) / duration), mm);
 
-                    if (result && ((time_running) / (duration + cm->__interal_get_animation_keep_time())) > 1)
+                    if (result && (static_cast<float>(time_running) / (duration + cm->
+                        __interal_get_animation_keep_time())) > 1)
                     {
                         delete cm->__internal_get_animation();
                         cm->__internal_set_animation(nullptr);
@@ -284,26 +131,26 @@ public:
             }
             system_draw();
             ledstrip->show(pixels, 2.0f);
-
         }
         if (ota_update)
             return;
 
-        if ((millis() - game_loop_timer) > (1000 / mm->get_current_tps()))
+        if ((static_cast<float>(millis()) - static_cast<float>(game_loop_timer)) > (1000 / mm->get_current_tps()))
         {
             game_loop_timer = millis();
             if (current_internal_app->is_wrench)
             {
                 wr_callFunction(wc, "game_loop");
-                if (wr_getLastError(w)!=0)
+
+                if (wr_getLastError(w) != 0)
                 {
-                    Serial.print("WREN Error: ");
+                    Serial.print(F("WREN Error when game_loop: "));
                     Serial.println(wr_getLastError(w));
                 }
             }
             else
             {
-            current_application->game_loop(mm, cm);
+                current_application->game_loop(mm, cm);
             }
         }
 
@@ -330,13 +177,25 @@ public:
      * @param name The name of the application
      * @param author The author of the application
      */
-    void register_application(Application*(*app)(), String name, String author)
+    void register_application(Application*(*app)(), const String& name, const String& author)
     {
         applications.push_back({
             app,
             String(name + " by " + author),
             false,
-            nullptr
+            nullptr,
+            0
+        });
+    }
+
+    void register_wrench(const unsigned char* code,int code_length, const String& name, const String& author)
+    {
+        applications.push_back({
+            nullptr,
+            String(name + " by " + author),
+            true,
+            code,
+            code_length
         });
     }
 
@@ -348,24 +207,23 @@ public:
     {
         if ((unsigned)id >= applications.size())
         {
-            Serial.println("Out of range\n");
+            Serial.println(F("Out of range\n"));
             return;
         }
 
 
         if (w != nullptr)
         {
-            Serial.println("WRENCH ACTIVE");
+            Serial.println(F("WRENCH ACTIVE"));
             wr_destroyState(w);
             w = nullptr;
         }
 
 
-
         if (current_internal_app->is_wrench)
         {
-            Serial.println("WRENCH ACTIVE");
-            free(outBytes);
+            Serial.println(F("WRENCH ACTIVE"));
+            // free(outBytes);
         }
         else
         {
@@ -384,37 +242,37 @@ public:
         current_internal_app = &applications[activeApplication];
         if (current_internal_app->is_wrench)
         {
-            Serial.println("WRENCH ACTIVE");
+            Serial.println(F("WRENCH ACTIVE"));
             w = wr_newState(); // create the state
-            register_wrench_functions(w, &ce);
+            wrench_wrapper::register_wrench_functions(w, &ce);
+            wr_loadMathLib(w);
 
-            Serial.println("try to execute");
+
+            Serial.println(F("try to execute"));
 
             //output current_internal_app->wrench_code in hex to the console
-            for (int i = 0; i < 83; i++)
-                Serial.printf("%02X ", current_internal_app->wrench_code[i]);
+         //   for (int i = 0; i < 83; i++)
+          //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
 
 
-                wc = wr_run(w, current_internal_app->wrench_code, 83); // load and run the code!
-                //print wr_getLastError(w);
-                Serial.println(wr_getLastError(w));
-                // clean up
-                Serial.println("try to execute function init");
+            wc = wr_run(w, current_internal_app->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+            //print wr_getLastError(w);
+            Serial.println(wr_getLastError(w));
+            // clean up
+            Serial.println(F("try to execute function init"));
 
-                WRValue* result = wr_callFunction(wc, "init");
-                if (!result)
-                {
-                    Serial.println("Error calling function");
-                }
-
-
+            WRValue* result = wr_callFunction(wc, "init");
+            if (!result)
+            {
+                Serial.println(F("Error calling function"));
+            }
         }
         else
         {
             current_application = applications[activeApplication].createFunction();
             current_application->init(mm, cm);
         }
-        Serial.println("Switched to " + applications[activeApplication].name);
+        Serial.println(F("Switched to ") + applications[activeApplication].name);
         send_ws_update();
     }
 
@@ -426,22 +284,24 @@ public:
         case WS_EVT_CONNECT:
             if (client->id() > 5)
             {
-                client->close(1000, "Too many clients");
+                client->close(1000, "Too many");
                 return;
             }
 
-            Serial.printf("WebSocket client #%u connected from %s\n", client->id(),
+            Serial.printf("ws #%u con %s\n", client->id(),
                           client->remoteIP().toString().c_str());
             break;
         case WS_EVT_DISCONNECT:
-            Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            Serial.printf("ws #%u dis\n", client->id());
             break;
         case WS_EVT_DATA:
             this->handleWebSocketMessage(arg, data, len);
             break;
         case WS_EVT_PONG:
+            break;
         case WS_EVT_ERROR:
             break;
+        default: break;
         }
     }
 
@@ -451,31 +311,6 @@ public:
 
 private:
 
-    static void register_wrench_functions(WRState* w, ControlElements* ce)
-    {
-        wr_registerFunction(w, "print", wrench_wrapper::print, &ce); // bind a function
-
-        wr_registerFunction(w, "set_status", wrench_wrapper::set_status, ce);
-        wr_registerFunction(w, "get_status", wrench_wrapper::get_status, ce);
-        wr_registerFunction(w, "get_controls", wrench_wrapper::get_controls, ce);
-        wr_registerFunction(w, "set_controls", wrench_wrapper::set_controls, ce);
-        wr_registerFunction(w, "reset_controls", wrench_wrapper::reset_controls, ce);
-        wr_registerFunction(w, "is_animation_running", wrench_wrapper::is_animation_running, ce);
-        // wr_registerFunction(w, "run_animation", wrench_wrapper::run_animation, ce);
-        wr_registerFunction(w, "stop_animation", wrench_wrapper::stop_animation, ce);
-
-        wr_registerFunction(w, "set_pixel", wrench_wrapper::set_pixel, ce);
-        wr_registerFunction(w, "off_pixel", wrench_wrapper::off_pixel, ce);
-        wr_registerFunction(w, "fill_matrix", wrench_wrapper::fill_matrix, ce);
-        wr_registerFunction(w, "clear_matrix", wrench_wrapper::clear_matrix, ce);
-        wr_registerFunction(w, "draw_line", wrench_wrapper::draw_line, ce);
-        wr_registerFunction(w, "draw_rect", wrench_wrapper::draw_rect, ce);
-        wr_registerFunction(w, "draw_circle", wrench_wrapper::draw_circle, ce);
-        wr_registerFunction(w, "draw_number", wrench_wrapper::draw_number, ce);
-
-        //animations
-        wr_registerFunction(w, "run_animation_splash", wrench_wrapper::run_animation_splash, ce);
-    }
 
 
     void send_ws_update()
@@ -497,7 +332,7 @@ private:
     {
         IPAddress APIP(172, 0, 0, 1); // Gateway
 
-        WiFi.hostname("matrix");
+        WiFi.hostname(F("matrix"));
 
         //  WiFi.mode(WIFI_AP);
         delay(100);
@@ -521,7 +356,7 @@ private:
 
         webServer = new AsyncWebServer(80);
         dnsServer = new DNSServer();
-        ws = new AsyncWebSocket("/ws");
+        ws = new AsyncWebSocket(F("/ws"));
 
         ws->onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
                            unsigned char* data, size_t len)
@@ -567,16 +402,16 @@ private:
         webServer->onNotFound([](AsyncWebServerRequest* request)
         {
             AsyncWebServerResponse* response = request->beginResponse_P(
-                200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-            response->addHeader("Content-Encoding", "gzip");
+                200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader(F("Content-Encoding"), F("gzip"));
             request->send(response);
         });
 
         webServer->on("/", HTTP_GET, [](AsyncWebServerRequest* request)
         {
             AsyncWebServerResponse* response = request->beginResponse_P(
-                200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-            response->addHeader("Content-Encoding", "gzip");
+                200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader(F("Content-Encoding"), F("gzip"));
             request->send(response);
         });
 
@@ -587,7 +422,7 @@ private:
             {
                 AsyncWebServerResponse* response = request->beginResponse_P(
                     200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
-                response->addHeader("Content-Encoding", "gzip");
+                response->addHeader(F("Content-Encoding"), F("gzip"));
                 request->send(response);
             });
         }
@@ -596,14 +431,14 @@ private:
         webServer->begin();
     }
 
-    String build_ssid()
+    [[nodiscard]] String build_ssid() const
     {
-        String ssid = "Matrix ";
+        String ssid = F("Matrix ");
         ssid += get_boot_code_emoji(boot_code & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 4) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 6) & 0x03).emoji;
-        ssid += " ID: #" + String(random(100, 999));
+        ssid += F(" ID: #") + String(random(100, 999));
         return ssid;
     }
 
@@ -700,77 +535,149 @@ private:
         }
     }
 
-    boot_code_result get_boot_code_emoji(uint8_t boot_code)
+    static boot_code_result get_boot_code_emoji(uint8_t boot_code)
     {
         if (boot_code == 0x00)
-            return {"🟥", 0xFF0000};
+            return {F("🟥"), 0xFF0000};
         if (boot_code == 0x01)
-            return {"🟩", 0x00FF00};
+            return {F("🟩"), 0x00FF00};
         if (boot_code == 0x02)
-            return {"🟦", 0x0000FF};
+            return {F("🟦"), 0x0000FF};
         if (boot_code == 0x03)
-            return {"🟨", 0xFFFF00};
+            return {F("🟨"), 0xFFFF00};
         return {"", 0};
     }
 
     void handleWebSocketMessage(void* arg, unsigned char* data, size_t len)
     {
-        AwsFrameInfo* info = (AwsFrameInfo*)arg;
+        auto* info = static_cast<AwsFrameInfo*>(arg);
         if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
         {
             String message = String((char*)data);
             JSONVar json = JSON.parse(message);
-            if (json.hasOwnProperty("command"))
+            if (json.hasOwnProperty(F("command")))
             {
                 String command = json["command"];
-                if (command == "switch_project")
+                if (command == F("switch_project"))
                 {
                     int project = atoi(json["project"]);
                     Serial.println(message);
                     switch_project(project);
                 }
-                else if (command == "action")
+                else if (command == F("action"))
                 {
                     String action = json["action"];
 
-                    if (action == "up")
+                    if (action == F("up"))
                     {
-                        this->current_application->on_event(Event::UP, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::UP);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::UP, mm, cm);
+
+                        }
                     }
 
-                    if (action == "down")
+                    if (action == F("down"))
                     {
-                        this->current_application->on_event(Event::DOWN, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::DOWN);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::DOWN, mm, cm);
+
+                        }
                     }
 
-                    if (action == "left")
+                    if (action == F("left"))
                     {
-                        this->current_application->on_event(Event::LEFT, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::LEFT);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::LEFT, mm, cm);
+
+                        }
                     }
 
-                    if (action == "right")
+                    if (action == F("right"))
                     {
-                        this->current_application->on_event(Event::RIGHT, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::RIGHT);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::RIGHT, mm, cm);
+
+                        }
                     }
 
-                    if (action == "middle")
+                    if (action == F("middle"))
                     {
-                        this->current_application->on_event(Event::MIDDLE, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::MIDDLE);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::MIDDLE, mm, cm);
+
+                        }
                     }
 
                     if (action == "a")
                     {
-                        this->current_application->on_event(Event::A, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::A);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::A, mm, cm);
+
+                        }
                     }
 
                     if (action == "b")
                     {
-                        this->current_application->on_event(Event::B, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::B);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::B, mm, cm);
+
+                        }
                     }
 
                     if (action == "c")
                     {
-                        this->current_application->on_event(Event::C, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::C);
+                            wr_callFunction(wc, "on_event", &val,1);
+                        }else
+                        {
+                            this->current_application->on_event(Event::C, mm, cm);
+
+                        }
                     }
                 }
             }
@@ -792,7 +699,6 @@ private:
     bool is_code_hidden = false;
 
     uint8_t boot_code = -1;
-    std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
     AsyncWebServer* webServer = nullptr;
     DNSServer* dnsServer = nullptr;
     AsyncWebSocket* ws = nullptr;
@@ -804,6 +710,5 @@ private:
     WS2812* ledstrip = nullptr;
     WRState* w = nullptr;
     WRContext* wc = nullptr;
-    unsigned char* outBytes = nullptr; // compiled code is alloc'ed
     int outLen = 0;
 };
