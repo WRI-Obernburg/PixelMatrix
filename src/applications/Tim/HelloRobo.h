@@ -9,7 +9,7 @@ public:
     }
     void init(MatrixManager *mm, ControlManager * cm) override
     {
-        Serial.println("Hello world");
+
     }
     void game_loop(MatrixManager *mm, ControlManager *cm) override
     {

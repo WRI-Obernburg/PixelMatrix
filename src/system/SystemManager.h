@@ -5,6 +5,7 @@
 #include "Application.h"
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <ESPAsyncTCP.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
@@ -22,7 +23,6 @@
 #define TPS 30
 
 
-
 struct InternalApp
 {
     Application*(*createFunction)();
@@ -31,8 +31,6 @@ struct InternalApp
     const unsigned char* wrench_code = nullptr;
     int wrench_code_size = 0;
 };
-
-
 
 
 struct boot_code_result
@@ -49,8 +47,6 @@ class SystemManager
 public:
     void init()
     {
-
-
         Serial.begin(9600);
         // init system
         pixels = new Pixel_t[144];
@@ -58,7 +54,7 @@ public:
         ledstrip->init(144);
         ledstrip->show(pixels, 2.0f);
 
-        mm = new MatrixManager(pixels);
+        mm = new MatrixManager(pixels, ledstrip);
         cm = new ControlManager([this]()
         {
             if ((millis() - this->last_ws_update) > 500)
@@ -89,9 +85,11 @@ public:
 
     void loop()
     {
-        yield();
 
         dnsServer->processNextRequest();
+
+
+        yield();
         //ElegantOTA.loop();
 
         if ((millis() - frame_timer) > (1000 / 50))
@@ -99,9 +97,12 @@ public:
             frame_timer = millis();
             if (!ota_update)
             {
-                if (current_internal_app->is_wrench)
+                if (current_internal_app->is_wrench )
                 {
-                    wr_callFunction(wc, "draw");
+                    if (!transmitting_wrench)
+                    {
+                        wr_callFunction(wc, "draw");
+                    }
                     if (wr_getLastError(w) != 0)
                     {
                         Serial.print(F("WREN Error when drawing: "));
@@ -140,7 +141,10 @@ public:
             game_loop_timer = millis();
             if (current_internal_app->is_wrench)
             {
-                wr_callFunction(wc, "game_loop");
+                if (!transmitting_wrench)
+                {
+                    wr_callFunction(wc, "game_loop");
+                }
 
                 if (wr_getLastError(w) != 0)
                 {
@@ -164,9 +168,11 @@ public:
             }
 
             Serial.println(EspClass::getFreeHeap());
+            MDNS.update();
         }
 
         yield();
+
     }
 
     /**
@@ -188,7 +194,7 @@ public:
         });
     }
 
-    void register_wrench(const unsigned char* code,int code_length, const String& name, const String& author)
+    void register_wrench(const unsigned char* code, int code_length, const String& name, const String& author)
     {
         applications.push_back({
             nullptr,
@@ -214,7 +220,7 @@ public:
 
         if (w != nullptr)
         {
-            Serial.println(F("WRENCH ACTIVE"));
+            Serial.println(F("WRENCH WAS ACTIVE"));
             wr_destroyState(w);
             w = nullptr;
         }
@@ -222,8 +228,9 @@ public:
 
         if (current_internal_app->is_wrench)
         {
-            Serial.println(F("WRENCH ACTIVE"));
-            // free(outBytes);
+            Serial.println(F("WRENCH WAS ACTIVE"));
+            if (!devMode)
+                delete[] this->wrench_code;
         }
         else
         {
@@ -239,23 +246,31 @@ public:
         cm->__internal_set_animation(nullptr);
         mm->clear();
 
-        current_internal_app = &applications[activeApplication];
+        current_internal_app = devMode?this->devApp:&applications[activeApplication];
         if (current_internal_app->is_wrench)
         {
             Serial.println(F("WRENCH ACTIVE"));
             w = wr_newState(); // create the state
             wrench_wrapper::register_wrench_functions(w, &ce);
             wr_loadMathLib(w);
+            wr_loadStringLib(w);
 
 
             Serial.println(F("try to execute"));
 
             //output current_internal_app->wrench_code in hex to the console
-         //   for (int i = 0; i < 83; i++)
-          //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
+            //   for (int i = 0; i < 83; i++)
+            //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
 
+            if (!devMode)
+            {
+                this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
+                memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
+            }
 
-            wc = wr_run(w, current_internal_app->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+            wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+            wr_setAllocatedMemoryGCHint(wc,1000);
+
             //print wr_getLastError(w);
             Serial.println(wr_getLastError(w));
             // clean up
@@ -282,12 +297,6 @@ public:
         switch (type)
         {
         case WS_EVT_CONNECT:
-            if (client->id() > 5)
-            {
-                client->close(1000, "Too many");
-                return;
-            }
-
             Serial.printf("ws #%u con %s\n", client->id(),
                           client->remoteIP().toString().c_str());
             break;
@@ -310,9 +319,6 @@ public:
     float ota_progress = 0;
 
 private:
-
-
-
     void send_ws_update()
     {
         last_ws_update = millis();
@@ -320,7 +326,7 @@ private:
         package["status"] = cm->get_status();
         package["controls"] = cm->get_controls();
         package["apps"] = this->json_apps;
-        package["active_id"] = this->activeApplication;
+        package["active_id"] = devMode ? -1 : this->activeApplication;
 
         if (ws->count() > 0)
         {
@@ -330,13 +336,17 @@ private:
 
     void start_server()
     {
-        IPAddress APIP(172, 0, 0, 1); // Gateway
+        IPAddress APIP(192, 168, 0, 1); // Gateway
 
-        WiFi.hostname(F("matrix"));
+        WiFi.persistent(false);
+
 
         //  WiFi.mode(WIFI_AP);
-        delay(100);
+
+        wifi_station_set_hostname("matrix.local");
+
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
+        WiFi.hostname(F("matrix.local"));
 
         WiFi.scanNetworks();
 
@@ -353,6 +363,8 @@ private:
         WiFi.softAP(build_ssid(), "", best_channel_id, 0, 4, 100);
         WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
+
+        MDNS.begin(F("matrix"));
 
         webServer = new AsyncWebServer(80);
         dnsServer = new DNSServer();
@@ -399,6 +411,7 @@ private:
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
 
+
         webServer->onNotFound([](AsyncWebServerRequest* request)
         {
             AsyncWebServerResponse* response = request->beginResponse_P(
@@ -414,6 +427,63 @@ private:
             response->addHeader(F("Content-Encoding"), F("gzip"));
             request->send(response);
         });
+
+        webServer->on("/api", HTTP_GET, [this](AsyncWebServerRequest* request)
+        {
+            JSONVar package;
+            package["version"] = "1.0.0";
+            package["freeHeap"] = EspClass::getFreeHeap();
+            package["bootCode"] = boot_code;
+            package["ssid"] = WiFi.SSID();
+            package["ip"] = WiFi.localIP().toString();
+            package["mac"] = WiFi.macAddress();
+            package["currentApp"] = current_internal_app->name;
+            package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
+
+
+            request->send(200, F("application/json"), JSON.stringify(package));
+        });
+
+        //push wrench code to the device
+        webServer->on("/pushDevCode", HTTP_POST, [this](AsyncWebServerRequest* request)
+        {
+            request->send(200, F("plain/text"), "OK");
+        },nullptr,[this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total)
+            {
+
+                Serial.printf("Index: %d, Total: %d\n", index, total);
+                if (request->url() == "/pushDevCode")
+                {
+
+                    if (index == 0)
+                    {
+                        devMode = true;
+                        transmitting_wrench = true;
+
+                        if (wrench_code!=nullptr)
+                        {
+                            delete[] wrench_code;
+                        }
+
+                        wrench_code = new unsigned char[total];
+                        current_internal_app = this->devApp;
+                        current_internal_app->wrench_code_size = total;
+                        Serial.println("Code upload started");
+                    }
+
+
+                    Serial.printf("Received %d bytes\n", len);
+
+                    memcpy(wrench_code+index, data, len);
+
+                    if((index+len) == total)
+                    {
+                        Serial.println("Code upload finished");
+                        switch_project(applications.size()-1);
+                        transmitting_wrench = false;
+                    }
+                }
+            });
 
         // Create a route handler for each of the build artifacts
         for (int i = 0; i < static_files::num_of_files; i++)
@@ -562,6 +632,7 @@ private:
                 {
                     int project = atoi(json["project"]);
                     Serial.println(message);
+                    devMode = false;
                     switch_project(project);
                 }
                 else if (command == F("action"))
@@ -574,11 +645,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::UP);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::UP, mm, cm);
-
                         }
                     }
 
@@ -588,11 +659,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::DOWN);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::DOWN, mm, cm);
-
                         }
                     }
 
@@ -602,11 +673,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::LEFT);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::LEFT, mm, cm);
-
                         }
                     }
 
@@ -616,11 +687,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::RIGHT);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::RIGHT, mm, cm);
-
                         }
                     }
 
@@ -630,11 +701,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::MIDDLE);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::MIDDLE, mm, cm);
-
                         }
                     }
 
@@ -644,11 +715,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::A);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::A, mm, cm);
-
                         }
                     }
 
@@ -658,11 +729,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::B);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::B, mm, cm);
-
                         }
                     }
 
@@ -672,11 +743,11 @@ private:
                         {
                             WRValue val;
                             wr_makeInt(&val, Event::C);
-                            wr_callFunction(wc, "on_event", &val,1);
-                        }else
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
                         {
                             this->current_application->on_event(Event::C, mm, cm);
-
                         }
                     }
                 }
@@ -688,6 +759,9 @@ private:
     std::vector<InternalApp> applications;
     Application* current_application = nullptr;
     InternalApp* current_internal_app = nullptr;
+    InternalApp* devApp = new InternalApp{
+        nullptr, "Dev", true, nullptr, 0
+    };
     ControlManager* cm = nullptr;
     ControlElements ce = {};
     int activeApplication = 0;
@@ -703,6 +777,7 @@ private:
     DNSServer* dnsServer = nullptr;
     AsyncWebSocket* ws = nullptr;
     JSONVar json_apps;
+    uint8_t* wrench_code = nullptr;
 
     // pixel buffer
     Pixel_t* pixels = nullptr;
@@ -711,4 +786,6 @@ private:
     WRState* w = nullptr;
     WRContext* wc = nullptr;
     int outLen = 0;
+    bool devMode = false;
+    bool transmitting_wrench = false;
 };

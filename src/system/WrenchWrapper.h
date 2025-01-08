@@ -18,17 +18,15 @@ namespace wrench_wrapper
 {
     inline void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
-        for (int i = 0; i < argn; ++i)
+        char buf[128];
+        for( int i=0; i<argn; ++i )
         {
-            char buf[128];
-            printf("%s\n", argv[i].asString(buf, 128));
+            printf( "%s\n", argv[i].asString(buf, 128) );
         }
     }
 
     inline void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
-
-        return;
         if (argn == 0) return;
         auto* ce = static_cast<ControlElements*>(usr);
 
@@ -145,11 +143,19 @@ namespace wrench_wrapper
         wr_makeInt(&retVal, 1);
     }
 
-    inline void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    inline void draw_rect_filled(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 5) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt(),true); //make fillable controlable
+        wr_makeInt(&retVal, 1);
+    }
+
+    inline void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
+    {
+        if (argn != 5) return;
+        auto ce = static_cast<ControlElements*>(usr);
+        ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt()); //make fillable controlable
         wr_makeInt(&retVal, 1);
     }
 
@@ -206,6 +212,7 @@ namespace wrench_wrapper
         wr_registerFunction(w, "clear_matrix", wrench_wrapper::clear_matrix, ce);
         wr_registerFunction(w, "draw_line", wrench_wrapper::draw_line, ce);
         wr_registerFunction(w, "draw_rect", wrench_wrapper::draw_rect, ce);
+        wr_registerFunction(w, "draw_rect_filled", wrench_wrapper::draw_rect_filled, ce);
         wr_registerFunction(w, "draw_circle", wrench_wrapper::draw_circle, ce);
         wr_registerFunction(w, "draw_number", wrench_wrapper::draw_number, ce);
 

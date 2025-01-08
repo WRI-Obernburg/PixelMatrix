@@ -6,9 +6,10 @@
 class MatrixManager
 {
 public:
-    MatrixManager(Pixel_t *pixels)
+    MatrixManager(Pixel_t *pixels, WS2812* ledstrip)
     {
         this->pixels = pixels;
+        this->ledstrip = ledstrip;
     }
 
     /**
@@ -42,13 +43,13 @@ public:
      * @param b blue value of the pixel
      * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
      */
-    void set(int x, int y, int r, int g, int b, bool ignoreOutOfRange = false)
+    void set(const int x, const int y,const int r, const int g, const int b, const bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
             if (!ignoreOutOfRange)
             {
-                Serial.println("Out of range\n");
+                Serial.println(F("Out of range\n"));
             }
             return;
         }
@@ -81,7 +82,7 @@ public:
     {
         if (n > 143)
         {
-            Serial.println("Out of range\n");
+            Serial.println(F("Out of range\n"));
             return;
         }
         int pixel = n;
@@ -196,7 +197,7 @@ public:
         int needed_space = amount_of_digits * 3 + (amount_of_digits - 1) * gap;
         if ((needed_space + x) > 12)
         {
-            Serial.println("Not enough space available");
+            Serial.println(F("Not enough space available"));
             return;
         }
 
@@ -259,6 +260,7 @@ public:
      */
     void digit(const int x, const int y, const int n, uint32_t color)
     {
+
         switch (n)
         {
         case 0:
@@ -330,9 +332,10 @@ public:
             this->number_segment(x, y, 6, color);
             break;
         default:
-            Serial.println("Invalid digit");
+            Serial.println(F("Invalid digit"));
             break;
         }
+
     }
 
     /**
@@ -383,9 +386,10 @@ public:
             set(x + 2, y + 2, color);
             break;
         default:
-            Serial.println("Invalid Segment");
+            Serial.println(F("Invalid Segment"));
             break;
         }
+
     }
 
     /**
@@ -521,9 +525,10 @@ public:
 
 private:
     Pixel_t *pixels;
+    WS2812* ledstrip;
     float currentTPS = 0;
 
-    int calculate_strip_pixel(int x, int y)
+    int calculate_strip_pixel(const int x, const int y)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
