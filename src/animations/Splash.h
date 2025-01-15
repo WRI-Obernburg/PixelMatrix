@@ -26,6 +26,7 @@ public:
         return progress > 1;
     }
 
+
 private:
     int x, y;
     uint32_t color;

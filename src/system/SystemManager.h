@@ -1,96 +1,135 @@
 #pragma once
-#define ELEGANTOTA_USE_ASYNC_WEBSERVER 1
-#define ELEGANTOTA_DEBUG 1
+
 #define UPDATE_DEBUG 1
-#include <Adafruit_NeoPixel.h>
 #include "MatrixManager.h"
 #include "Application.h"
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <ESPAsyncTCP.h>
-#include <ESPAsyncWebServer.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
 #include <ElegantOTA.h>
 #include <ws2812_i2s.h>
+#define WRENCH_COMPACT
+#include "WrenchWrapper.h"
+
+#include "wrench/wrench.h"
+#include <ESPAsyncWebServer.h>
+#include <animations/Splash.h>
 
 #define NUMPIXELS 144
 #define PIN D4
 #define TPS 30
 
+
 struct InternalApp
 {
-    Application *(*createFunction)();
+    Application*(*createFunction)();
     String name;
+    bool is_wrench = false;
+    const unsigned char* wrench_code = nullptr;
+    int wrench_code_size = 0;
 };
+
 
 struct boot_code_result
 {
     String emoji;
     uint32_t color;
 };
+
 /**
  * Controls the system and schedules the application.
  */
 class SystemManager
 {
 public:
-    SystemManager()
-    {
-    }
     void init()
     {
-
         Serial.begin(9600);
         // init system
         pixels = new Pixel_t[144];
         ledstrip = new WS2812();
+        pinMode(D8, INPUT_PULLDOWN_16);
+        pinMode(D7, OUTPUT);
+        digitalWrite(D7, HIGH);
+        delay(100);
+        const bool inverse = digitalRead(D8) == HIGH;
+        Serial.println(digitalRead((D8)));
         ledstrip->init(144);
         ledstrip->show(pixels, 2.0f);
 
-        mm = new MatrixManager(pixels);
+        mm = new MatrixManager(pixels, ledstrip, inverse);
         cm = new ControlManager([this]()
-                                {
-            if((millis()-this->last_ws_update) > 500) {
+        {
+            if ((millis() - this->last_ws_update) > 500)
+            {
                 this->send_ws_update();
-            } });
+            }
+        });
+        ce = {
+            cm,
+            mm
+        };
+
         mm->set_tps(TPS);
-        current_application = applications[activeApplication].createFunction();
+        current_application = applications[activeApplication].createFunction(); //TODO make sure to respect wrench code
+        current_internal_app = &applications[activeApplication];
         current_application->init(mm, cm);
 
-        for (uint64_t i = 0; i < applications.size(); i++)
+        for (int i = 0; i < applications.size(); i++)
         {
             this->json_apps[i] = applications[i].name;
         }
 
         // generate boot code between 0 255
-        randomSeed(ESP.getCycleCount());
+        randomSeed(EspClass::getCycleCount());
         boot_code = random(0, 255);
         start_server();
     }
+
     void loop()
     {
 
-        yield();
-
         dnsServer->processNextRequest();
-        ElegantOTA.loop();
+
+
+        yield();
+        //ElegantOTA.loop();
 
         if ((millis() - frame_timer) > (1000 / 50))
         {
             frame_timer = millis();
             if (!ota_update)
             {
-                current_application->draw(mm, cm);
+                if (current_internal_app->is_wrench )
+                {
+                    if (!transmitting_wrench)
+                    {
+                        wr_callFunction(wc, "draw");
+                    }
+                    if (wr_getLastError(w) != 0)
+                    {
+                        Serial.print(F("WREN Error when drawing: "));
+                        Serial.println(wr_getLastError(w));
+                    }
+                }
+                else
+                {
+                    current_application->draw(mm, cm);
+                }
                 if (cm->is_animation_running())
                 {
                     long long start = cm->__internal_get_animation_start();
                     float duration = cm->__internal_get_animation_duration();
                     long long time_running = millis() - start;
 
-                    bool result = cm->__internal_get_animation()->run(((time_running) / duration), mm);
+                    bool result = cm->__internal_get_animation()->
+                                      run((static_cast<float>(time_running) / duration), mm);
 
-                    if (result && ((time_running) / (duration + cm->__interal_get_animation_keep_time())) > 1)
+                    if (result && (static_cast<float>(time_running) / (duration + cm->
+                        __interal_get_animation_keep_time())) > 1)
                     {
                         delete cm->__internal_get_animation();
                         cm->__internal_set_animation(nullptr);
@@ -103,10 +142,26 @@ public:
         if (ota_update)
             return;
 
-        if ((millis() - game_loop_timer) > (1000 / mm->get_current_tps()))
+        if ((static_cast<float>(millis()) - static_cast<float>(game_loop_timer)) > (1000 / mm->get_current_tps()))
         {
             game_loop_timer = millis();
-            current_application->game_loop(mm, cm);
+            if (current_internal_app->is_wrench)
+            {
+                if (!transmitting_wrench)
+                {
+                    wr_callFunction(wc, "game_loop");
+                }
+
+                if (wr_getLastError(w) != 0)
+                {
+                    Serial.print(F("WREN Error when game_loop: "));
+                    Serial.println(wr_getLastError(w));
+                }
+            }
+            else
+            {
+                current_application->game_loop(mm, cm);
+            }
         }
 
         if ((float)(millis() - ws_timer) > 300)
@@ -118,11 +173,14 @@ public:
                 send_ws_update();
             }
 
-            // Serial.println(ESP.getFreeHeap());
+            Serial.println(EspClass::getFreeHeap());
+            MDNS.update();
         }
 
         yield();
+
     }
+
     /**
      * Register an application to be visible
      * to the user in the drop down menu.
@@ -131,10 +189,26 @@ public:
      * @param name The name of the application
      * @param author The author of the application
      */
-    void register_application(Application *(*app)(), String name, String author)
+    void register_application(Application*(*app)(), const String& name, const String& author)
     {
-        applications.push_back({app,
-                                String(name + " by " + author)});
+        applications.push_back({
+            app,
+            String(name + " by " + author),
+            false,
+            nullptr,
+            0
+        });
+    }
+
+    void register_wrench(const unsigned char* code, int code_length, const String& name, const String& author)
+    {
+        applications.push_back({
+            nullptr,
+            String(name + " by " + author),
+            true,
+            code,
+            code_length
+        });
     }
 
     /**
@@ -145,45 +219,105 @@ public:
     {
         if ((unsigned)id >= applications.size())
         {
-            Serial.println("Out of range\n");
+            Serial.println(F("Out of range\n"));
             return;
         }
 
-        current_application->clean_up(mm);
-        delete current_application;
+
+        if (w != nullptr)
+        {
+            Serial.println(F("WRENCH WAS ACTIVE"));
+            wr_destroyState(w);
+            w = nullptr;
+        }
+
+
+        if (current_internal_app->is_wrench)
+        {
+            Serial.println(F("WRENCH WAS ACTIVE"));
+            if (!devMode)
+                delete[] this->wrench_code;
+        }
+        else
+        {
+            current_application->clean_up(mm);
+            delete current_application;
+            current_internal_app = nullptr;
+        }
+
+
         cm->reset();
         activeApplication = id;
         this->mm->set_tps(TPS);
         cm->__internal_set_animation(nullptr);
         mm->clear();
-        current_application = applications[activeApplication].createFunction();
-        current_application->init(mm, cm);
-        Serial.println("Switched to " + applications[activeApplication].name);
+
+        current_internal_app = devMode?this->devApp:&applications[activeApplication];
+        if (current_internal_app->is_wrench)
+        {
+            Serial.println(F("WRENCH ACTIVE"));
+            w = wr_newState(); // create the state
+            wrench_wrapper::register_wrench_functions(w, &ce);
+            wr_loadMathLib(w);
+            wr_loadStringLib(w);
+            wr_loadContainerLib(w);
+
+
+            Serial.println(F("try to execute"));
+
+            //output current_internal_app->wrench_code in hex to the console
+            //   for (int i = 0; i < 83; i++)
+            //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
+
+            if (!devMode)
+            {
+                this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
+                memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
+            }
+
+            wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+            wr_setAllocatedMemoryGCHint(w,1000);
+
+            //print wr_getLastError(w);
+            Serial.println(wr_getLastError(w));
+            // clean up
+            Serial.println(F("try to execute function init"));
+
+            WRValue* result = wr_callFunction(wc, "init");
+            if (!result)
+            {
+                Serial.println(F("Error calling function"));
+            }
+        }
+        else
+        {
+            current_application = applications[activeApplication].createFunction();
+            current_application->init(mm, cm);
+        }
+        Serial.println(F("Switched to ") + applications[activeApplication].name);
         send_ws_update();
     }
 
-    void handleWebsocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
+    void handleWebsocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
+                              unsigned char* data, size_t len)
     {
         switch (type)
         {
         case WS_EVT_CONNECT:
-            if (client->id() > 5)
-            {
-                client->close(1000, "Too many clients");
-                return;
-            }
-
-            Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+            Serial.printf("ws #%u con %s\n", client->id(),
+                          client->remoteIP().toString().c_str());
             break;
         case WS_EVT_DISCONNECT:
-            Serial.printf("WebSocket client #%u disconnected\n", client->id());
+            Serial.printf("ws #%u dis\n", client->id());
             break;
         case WS_EVT_DATA:
             this->handleWebSocketMessage(arg, data, len);
             break;
         case WS_EVT_PONG:
+            break;
         case WS_EVT_ERROR:
             break;
+        default: break;
         }
     }
 
@@ -199,22 +333,27 @@ private:
         package["status"] = cm->get_status();
         package["controls"] = cm->get_controls();
         package["apps"] = this->json_apps;
-        package["active_id"] = this->activeApplication;
+        package["active_id"] = devMode ? -1 : this->activeApplication;
 
         if (ws->count() > 0)
         {
             ws->textAll(JSON.stringify(package));
         }
     }
+
     void start_server()
     {
-        IPAddress APIP(172, 0, 0, 1); // Gateway
+        IPAddress APIP(192, 168, 0, 1); // Gateway
 
-        WiFi.hostname("matrix");
+        WiFi.persistent(false);
+
 
         //  WiFi.mode(WIFI_AP);
-        delay(100);
+
+        wifi_station_set_hostname("matrix.local");
+
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
+        WiFi.hostname(F("matrix.local"));
 
         WiFi.scanNetworks();
 
@@ -232,80 +371,201 @@ private:
         WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
 
+        MDNS.begin(F("matrix"));
+
         webServer = new AsyncWebServer(80);
         dnsServer = new DNSServer();
-        ws = new AsyncWebSocket("/ws");
+        ws = new AsyncWebSocket(F("/ws"));
 
-        ws->onEvent([this](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, unsigned char *data, size_t len)
-                    { this->handleWebsocketEvent(server, client, type, arg, data, len); });
+        ws->onEvent([this](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
+                           unsigned char* data, size_t len)
+        {
+            this->handleWebsocketEvent(server, client, type, arg, data, len);
+        });
         webServer->addHandler(ws);
 
         ElegantOTA.begin(webServer);
         ElegantOTA.onStart([this]()
-                           {
-                               Serial.println("OTA update started!");
-                               this->ota_update = true;
-                               this->ota_error = false;
-                               this->ota_progress = 0; 
-                               this->mm->fill(0xFFFF00); });
+        {
+            Serial.println("OTA update started!");
+            this->ota_update = true;
+            this->ota_error = false;
+            this->ota_progress = 0;
+            this->mm->fill(0xFFFF00);
+        });
         ElegantOTA.onProgress([this](size_t current, size_t final)
-                              { this->ota_progress = (float)current / (float) final; });
+        {
+            this->ota_progress = (float)current / (float)final;
+        });
         ElegantOTA.onEnd([this](bool success)
-                         {
-            if(success) {
+        {
+            if (success)
+            {
                 Serial.println("OTA update finished!");
                 this->ota_error = false;
                 this->ota_progress = 1;
-            } else {
+            }
+            else
+            {
                 Serial.println("OTA update failed!");
                 this->ota_update = false;
                 this->ota_error = true;
                 this->ota_progress = 0;
-            } });
+            }
+        });
+
 
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
 
-        webServer->onNotFound([](AsyncWebServerRequest *request)
-                              {
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response); });
 
-        webServer->on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-                      {
-    AsyncWebServerResponse *response = request->beginResponse_P(200, "text/html", static_files::f_index_html_contents, static_files::f_index_html_size);
-    response->addHeader("Content-Encoding", "gzip");
-    request->send(response); });
+        webServer->onNotFound([](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse_P(
+                200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader(F("Content-Encoding"), F("gzip"));
+            request->send(response);
+        });
+
+        webServer->on("/", HTTP_GET, [](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse_P(
+                200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
+            response->addHeader(F("Content-Encoding"), F("gzip"));
+            request->send(response);
+        });
+
+        webServer->on("/api", HTTP_GET, [this](AsyncWebServerRequest* request)
+        {
+
+            JSONVar package;
+            package["version"] = "1.1.0";
+            package["freeHeap"] = EspClass::getFreeHeap();
+            package["bootCode"] = boot_code;
+            package["ssid"] = WiFi.SSID();
+            package["ip"] = WiFi.localIP().toString();
+            package["mac"] = WiFi.macAddress();
+            package["currentApp"] = current_internal_app->name;
+            package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
+            AsyncWebServerResponse *response = request->beginResponse(200, F("application/json"), JSON.stringify(package));
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+
+            request->send(response);
+
+        });
+
+        webServer->on("/api", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+
+
+            AsyncWebServerResponse *response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+
+        });
+
+        webServer->on("/pushDevCode", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+       {
+
+
+           AsyncWebServerResponse *response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+          response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+          response->addHeader("Access-Control-Expose-Headers", "*");
+          response->addHeader("Access-Control-Allow-Headers", "*");
+          response->addHeader("Access-Control-Allow-Credentials", "true");
+           request->send(response);
+
+       });
+
+        //push wrench code to the device
+        webServer->on("/pushDevCode", HTTP_POST, [this](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse *response = request->beginResponse(204, F("application/json"), F("{\"success\":true}"));
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+           response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+           request->send(response);
+        },nullptr,[this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total)
+            {
+
+                Serial.printf("Index: %d, Total: %d\n", index, total);
+                if (request->url() == "/pushDevCode")
+                {
+
+                    if (index == 0)
+                    {
+                        devMode = true;
+                        transmitting_wrench = true;
+
+                        if (wrench_code!=nullptr)
+                        {
+                            delete[] wrench_code;
+                        }
+
+                        wrench_code = new unsigned char[total];
+                        current_internal_app = this->devApp;
+                        current_internal_app->wrench_code_size = total;
+                        Serial.println("Code upload started");
+                    }
+
+
+                    Serial.printf("Received %d bytes\n", len);
+
+                    memcpy(wrench_code+index, data, len);
+
+                    if((index+len) == total)
+                    {
+                        Serial.println("Code upload finished");
+                        switch_project(applications.size()-1);
+                        transmitting_wrench = false;
+                    }
+                }
+            });
 
         // Create a route handler for each of the build artifacts
         for (int i = 0; i < static_files::num_of_files; i++)
         {
-            webServer->on(static_files::files[i].path, HTTP_GET, [i](AsyncWebServerRequest *request)
-                          {
-      AsyncWebServerResponse *response = request->beginResponse_P(200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response); });
+            webServer->on(static_files::files[i].path, HTTP_GET, [i](AsyncWebServerRequest* request)
+            {
+                AsyncWebServerResponse* response = request->beginResponse_P(
+                    200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
+                response->addHeader(F("Content-Encoding"), F("gzip"));
+                request->send(response);
+            });
         }
+
 
         webServer->begin();
     }
 
-    String build_ssid()
+    [[nodiscard]] String build_ssid() const
     {
-
-        String ssid = "Matrix ";
+        String ssid = F("Matrix ");
         ssid += get_boot_code_emoji(boot_code & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 4) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 6) & 0x03).emoji;
-        ssid += " ID: #" + String(random(100, 999));
+        ssid += F(" ID: #") + String(random(100, 999));
         return ssid;
     }
 
     void system_draw()
     {
-
         if (ota_update)
         {
             mm->clear();
@@ -375,17 +635,17 @@ private:
                 mm->set(10, 0, get_boot_code_emoji((boot_code >> 4) & 0x03).color);
                 mm->set(11, 0, get_boot_code_emoji((boot_code >> 6) & 0x03).color);
 
-                if ((millis() - hide_connnect_code_timer) > (1000 * 30))
+                if ((millis() - hide_connect_code_timer) > (1000 * 30))
                 {
-                    hide_connnect_code_timer = millis();
+                    hide_connect_code_timer = millis();
                     is_code_hidden = true;
                 }
             }
             else
             {
-                if ((millis() - hide_connnect_code_timer) > (1000 * 4 * 60))
+                if ((millis() - hide_connect_code_timer) > (1000 * 4 * 60))
                 {
-                    hide_connnect_code_timer = millis();
+                    hide_connect_code_timer = millis();
                     is_code_hidden = false;
                 }
             }
@@ -393,109 +653,191 @@ private:
         else
         {
             is_code_hidden = false;
-            hide_connnect_code_timer = millis();
+            hide_connect_code_timer = millis();
         }
     }
 
-    boot_code_result get_boot_code_emoji(uint8_t boot_code)
+    static boot_code_result get_boot_code_emoji(uint8_t boot_code)
     {
         if (boot_code == 0x00)
-            return {"🟥", 0xFF0000};
+            return {F("🟥"), 0xFF0000};
         if (boot_code == 0x01)
-            return {"🟩", 0x00FF00};
+            return {F("🟩"), 0x00FF00};
         if (boot_code == 0x02)
-            return {"🟦", 0x0000FF};
+            return {F("🟦"), 0x0000FF};
         if (boot_code == 0x03)
-            return {"🟨", 0xFFFF00};
+            return {F("🟨"), 0xFFFF00};
         return {"", 0};
     }
 
-    void handleWebSocketMessage(void *arg, unsigned char *data, size_t len)
+    void handleWebSocketMessage(void* arg, unsigned char* data, size_t len)
     {
-        AwsFrameInfo *info = (AwsFrameInfo *)arg;
+        auto* info = static_cast<AwsFrameInfo*>(arg);
         if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT)
         {
-            String message = String((char *)data);
+            String message = String((char*)data);
             JSONVar json = JSON.parse(message);
-            if (json.hasOwnProperty("command"))
+            if (json.hasOwnProperty(F("command")))
             {
                 String command = json["command"];
-                if (command == "switch_project")
+                if (command == F("switch_project"))
                 {
                     int project = atoi(json["project"]);
                     Serial.println(message);
+                    devMode = false;
                     switch_project(project);
                 }
-                else if (command == "action")
+                else if (command == F("action"))
                 {
                     String action = json["action"];
 
-                    if (action == "up")
+                    if (action == F("up"))
                     {
-                        this->current_application->on_event(Event::UP, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::UP);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::UP, mm, cm);
+                        }
                     }
 
-                    if (action == "down")
+                    if (action == F("down"))
                     {
-                        this->current_application->on_event(Event::DOWN, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::DOWN);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::DOWN, mm, cm);
+                        }
                     }
 
-                    if (action == "left")
+                    if (action == F("left"))
                     {
-                        this->current_application->on_event(Event::LEFT, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::LEFT);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::LEFT, mm, cm);
+                        }
                     }
 
-                    if (action == "right")
+                    if (action == F("right"))
                     {
-                        this->current_application->on_event(Event::RIGHT, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::RIGHT);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::RIGHT, mm, cm);
+                        }
                     }
 
-                    if (action == "middle")
+                    if (action == F("middle"))
                     {
-                        this->current_application->on_event(Event::MIDDLE, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::MIDDLE);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::MIDDLE, mm, cm);
+                        }
                     }
 
                     if (action == "a")
                     {
-                        this->current_application->on_event(Event::A, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::A);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::A, mm, cm);
+                        }
                     }
 
                     if (action == "b")
                     {
-                        this->current_application->on_event(Event::B, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::B);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::B, mm, cm);
+                        }
                     }
 
                     if (action == "c")
                     {
-                        this->current_application->on_event(Event::C, mm, cm);
+                        if (this->current_internal_app->is_wrench)
+                        {
+                            WRValue val;
+                            wr_makeInt(&val, Event::C);
+                            wr_callFunction(wc, "on_event", &val, 1);
+                        }
+                        else
+                        {
+                            this->current_application->on_event(Event::C, mm, cm);
+                        }
                     }
                 }
-
-                // notifyClients(sensorReadings);
             }
         }
     }
 
-    MatrixManager *mm;
+    MatrixManager* mm = nullptr;
     std::vector<InternalApp> applications;
-    Application *current_application = nullptr;
-    ControlManager *cm = nullptr;
+    Application* current_application = nullptr;
+    InternalApp* current_internal_app = nullptr;
+    InternalApp* devApp = new InternalApp{
+        nullptr, "Dev", true, nullptr, 0
+    };
+    ControlManager* cm = nullptr;
+    ControlElements ce = {};
     int activeApplication = 0;
     long long frame_timer = 0;
     long long game_loop_timer = 0;
     long long ws_timer = 0;
     long long last_ws_update = 0;
-    long long hide_connnect_code_timer = 0;
+    long long hide_connect_code_timer = 0;
     bool is_code_hidden = false;
 
     uint8_t boot_code = -1;
-    std::vector<String> boot_code_emoji_translation = {"🟥", "🟩", "🟦", "🟨"};
-    AsyncWebServer *webServer;
-    DNSServer *dnsServer;
-    AsyncWebSocket *ws;
+    AsyncWebServer* webServer = nullptr;
+    DNSServer* dnsServer = nullptr;
+    AsyncWebSocket* ws = nullptr;
     JSONVar json_apps;
+    uint8_t* wrench_code = nullptr;
+
     // pixel buffer
-    Pixel_t *pixels;
+    Pixel_t* pixels = nullptr;
     int brightness = 100;
-    WS2812 *ledstrip;
+    WS2812* ledstrip = nullptr;
+    WRState* w = nullptr;
+    WRContext* wc = nullptr;
+    int outLen = 0;
+    bool devMode = false;
+    bool transmitting_wrench = false;
 };

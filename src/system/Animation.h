@@ -12,6 +12,7 @@
 class Animation {
     public:
     virtual ~Animation() {};
+
     /**
      *  Run the animation and return true if animation is done
      *  @param progress progress of the animation

@@ -6,9 +6,11 @@
 class MatrixManager
 {
 public:
-    MatrixManager(Pixel_t *pixels)
+    MatrixManager(Pixel_t* pixels, WS2812* ledstrip, bool inverse = false)
     {
         this->pixels = pixels;
+        this->ledstrip = ledstrip;
+        this->inverse = inverse;
     }
 
     /**
@@ -42,13 +44,13 @@ public:
      * @param b blue value of the pixel
      * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
      */
-    void set(int x, int y, int r, int g, int b, bool ignoreOutOfRange = false)
+    void set(const int x, const int y, const int r, const int g, const int b, const bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
             if (!ignoreOutOfRange)
             {
-                Serial.println("Out of range\n");
+                Serial.println(F("Out of range\n"));
             }
             return;
         }
@@ -81,7 +83,7 @@ public:
     {
         if (n > 143)
         {
-            Serial.println("Out of range\n");
+            Serial.println(F("Out of range\n"));
             return;
         }
         int pixel = n;
@@ -196,7 +198,7 @@ public:
         int needed_space = amount_of_digits * 3 + (amount_of_digits - 1) * gap;
         if ((needed_space + x) > 12)
         {
-            Serial.println("Not enough space available");
+            Serial.println(F("Not enough space available"));
             return;
         }
 
@@ -257,7 +259,7 @@ public:
      * @param n number to be drawn
      * @param color color of the number
      */
-    void digit(int x, int y, int n, uint32_t color)
+    void digit(const int x, const int y, const int n, uint32_t color)
     {
         switch (n)
         {
@@ -330,7 +332,7 @@ public:
             this->number_segment(x, y, 6, color);
             break;
         default:
-            Serial.println("Invalid digit");
+            Serial.println(F("Invalid digit"));
             break;
         }
     }
@@ -383,7 +385,7 @@ public:
             set(x + 2, y + 2, color);
             break;
         default:
-            Serial.println("Invalid Segment");
+            Serial.println(F("Invalid Segment"));
             break;
         }
     }
@@ -520,11 +522,18 @@ public:
     }
 
 private:
-    Pixel_t *pixels;
+    Pixel_t* pixels;
+    WS2812* ledstrip;
+    bool inverse = false;
     float currentTPS = 0;
 
     int calculate_strip_pixel(int x, int y)
     {
+        if (inverse)
+        {
+            x = 11 - x; //FOR MATRIX BUILD ON 11.01.2025
+        }
+
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
             Serial.println("Out of range\n");

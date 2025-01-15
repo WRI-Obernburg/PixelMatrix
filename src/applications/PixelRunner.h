@@ -2,193 +2,7 @@
 #include <system/MatrixManager.h>
 #include <system/Application.h>
 
-class PixelRunner : public Application
-{
-public:
-  PixelRunner() {};
-
-  void clean_up(MatrixManager *mm) override {}
-
-  static Application *create()
-  {
-    return new PixelRunner();
-  }
-
-  void init(MatrixManager *mm, ControlManager *cm) override
-  {
-
-    mm->set_tps((float)2);
-    state_to_controls();
-    cm->set_controls(controls);
-  }
-
-  void game_loop(MatrixManager *mm, ControlManager *cm) override
-  {
-    if (t > 36)
-    {
-      state = "win";
-    }
-    if (state == "running")
-    {
-      t = t + 1;
-      if (levels[level][t][py + sy] != 1)
-      {
-        py = py + sy;
-      }
-      if (py < 0)
-      {
-        py = 0;
-      }
-      sy = sy + -1;
-      if (sy <= -1)
-      {
-        sy = -1;
-      }
-      if (levels[level][t][py] != 0)
-      {
-        state = "gameover";
-      }
-    }
-    state_to_controls();
-    cm->set_controls(controls);
-  }
-
-  void draw(MatrixManager *mm, ControlManager *cm) override
-  {
-
-    mm->clear();
-    for (x = 0; x <= 11; x = x + 1)
-    {
-      for (y = 0; y <= 11; y = y + 1)
-      {
-        if (36 > x + t)
-        {
-          if (levels[level][x + t][y] == 1)
-          {
-            mm->set(x, y, MatrixManager::Color(255, 3, 238));
-          }
-          else if (levels[level][x + t][y] == 2)
-          {
-            mm->set(x, y, MatrixManager::Color(255, 0, 0));
-          }
-          else
-          {
-          }
-        }
-        else
-        {
-          if (0 + (y + (x + t)) % 2 == 0)
-          {
-            mm->set(x, y, MatrixManager::Color(255, 255, 255));
-          }
-        }
-      }
-    }
-    mm->set(0, py, MatrixManager::Color(0, 255, 0));
-  }
-
-  void on_event(Event e, MatrixManager *mm, ControlManager *cm) override
-  {
-    switch (e)
-    {
-    case Event::UP:
-      up(mm, cm);
-      break;
-    case Event::DOWN:
-      down(mm, cm);
-      break;
-    case Event::LEFT:
-      left(mm, cm);
-      break;
-    case Event::RIGHT:
-      right(mm, cm);
-      break;
-    case Event::MIDDLE:
-      middle(mm, cm);
-      break;
-    case Event::A:
-      aButton(mm, cm);
-      break;
-    case Event::B:
-      bButton(mm, cm);
-      break;
-    case Event::C:
-      cButton(mm, cm);
-      break;
-    default:
-      break;
-    }
-  }
-
-  void up(MatrixManager *mm, ControlManager *cm)
-  {
-
-    if (py == 0)
-    {
-      sy = 2;
-    }
-    else
-    {
-      if (levels[level][t][py - 1] == 1)
-      {
-        sy = 2;
-      }
-    }
-  }
-  void down(MatrixManager *mm, ControlManager *cm)
-  {
-  }
-  void left(MatrixManager *mm, ControlManager *cm)
-  {
-  }
-  void right(MatrixManager *mm, ControlManager *cm)
-  {
-  }
-  void middle(MatrixManager *mm, ControlManager *cm)
-  {
-
-    if (py == 0)
-    {
-      sy = 2;
-    }
-    else
-    {
-      if (levels[level][t][py - 1] == 1)
-      {
-        sy = 2;
-      }
-    }
-  }
-  void aButton(MatrixManager *mm, ControlManager *cm)
-  {
-
-    if (state == "idle")
-    {
-      state = "running";
-    }
-    else if (state == "gameover")
-    {
-      t = 0;
-      state = "idle";
-      py = 0;
-    }
-    else if (state == "win")
-    {
-      level = level + 1;
-      t = 0;
-      state = "idle";
-      py = 0;
-    }
-  }
-  void bButton(MatrixManager *mm, ControlManager *cm)
-  {
-  }
-  void cButton(MatrixManager *mm, ControlManager *cm)
-  {
-  }
-
-private:
-  int levels[4][36][12] = {
+int pixelrunner_levels[4][36][12] PROGMEM = {
 
       {
           {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -324,6 +138,194 @@ private:
        {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}};
+
+class PixelRunner : public Application
+{
+public:
+  PixelRunner() {};
+
+  void clean_up(MatrixManager *mm) override {}
+
+  static Application *create()
+  {
+    return new PixelRunner();
+  }
+
+  void init(MatrixManager *mm, ControlManager *cm) override
+  {
+
+    mm->set_tps((float)2);
+    state_to_controls();
+    cm->set_controls(controls);
+  }
+
+  void game_loop(MatrixManager *mm, ControlManager *cm) override
+  {
+    if (t > 36)
+    {
+      state = "win";
+    }
+    if (state == "running")
+    {
+      t = t + 1;
+      if (pixelrunner_levels[level][t][py + sy] != 1)
+      {
+        py = py + sy;
+      }
+      if (py < 0)
+      {
+        py = 0;
+      }
+      sy = sy + -1;
+      if (sy <= -1)
+      {
+        sy = -1;
+      }
+      if (pixelrunner_levels[level][t][py] != 0)
+      {
+        state = "gameover";
+      }
+    }
+    state_to_controls();
+    cm->set_controls(controls);
+  }
+
+  void draw(MatrixManager *mm, ControlManager *cm) override
+  {
+
+    mm->clear();
+    for (x = 0; x <= 11; x = x + 1)
+    {
+      for (y = 0; y <= 11; y = y + 1)
+      {
+        if (36 > x + t)
+        {
+          if (pixelrunner_levels[level][x + t][y] == 1)
+          {
+            mm->set(x, y, MatrixManager::Color(255, 3, 238));
+          }
+          else if (pixelrunner_levels[level][x + t][y] == 2)
+          {
+            mm->set(x, y, MatrixManager::Color(255, 0, 0));
+          }
+          else
+          {
+          }
+        }
+        else
+        {
+          if (0 + (y + (x + t)) % 2 == 0)
+          {
+            mm->set(x, y, MatrixManager::Color(255, 255, 255));
+          }
+        }
+      }
+    }
+    mm->set(0, py, MatrixManager::Color(0, 255, 0));
+  }
+
+  void on_event(Event e, MatrixManager *mm, ControlManager *cm) override
+  {
+    switch (e)
+    {
+    case Event::UP:
+      up(mm, cm);
+      break;
+    case Event::DOWN:
+      down(mm, cm);
+      break;
+    case Event::LEFT:
+      left(mm, cm);
+      break;
+    case Event::RIGHT:
+      right(mm, cm);
+      break;
+    case Event::MIDDLE:
+      middle(mm, cm);
+      break;
+    case Event::A:
+      aButton(mm, cm);
+      break;
+    case Event::B:
+      bButton(mm, cm);
+      break;
+    case Event::C:
+      cButton(mm, cm);
+      break;
+    default:
+      break;
+    }
+  }
+
+  void up(MatrixManager *mm, ControlManager *cm)
+  {
+
+    if (py == 0)
+    {
+      sy = 2;
+    }
+    else
+    {
+      if (pixelrunner_levels[level][t][py - 1] == 1)
+      {
+        sy = 2;
+      }
+    }
+  }
+  void down(MatrixManager *mm, ControlManager *cm)
+  {
+  }
+  void left(MatrixManager *mm, ControlManager *cm)
+  {
+  }
+  void right(MatrixManager *mm, ControlManager *cm)
+  {
+  }
+  void middle(MatrixManager *mm, ControlManager *cm)
+  {
+
+    if (py == 0)
+    {
+      sy = 2;
+    }
+    else
+    {
+      if (pixelrunner_levels[level][t][py - 1] == 1)
+      {
+        sy = 2;
+      }
+    }
+  }
+  void aButton(MatrixManager *mm, ControlManager *cm)
+  {
+
+    if (state == "idle")
+    {
+      state = "running";
+    }
+    else if (state == "gameover")
+    {
+      t = 0;
+      state = "idle";
+      py = 0;
+    }
+    else if (state == "win")
+    {
+      level = level + 1;
+      t = 0;
+      state = "idle";
+      py = 0;
+    }
+  }
+  void bButton(MatrixManager *mm, ControlManager *cm)
+  {
+  }
+  void cButton(MatrixManager *mm, ControlManager *cm)
+  {
+  }
+
+private:
+
   String state = "idle";
   int x;
   int y;
