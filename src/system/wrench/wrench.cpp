@@ -1097,7 +1097,7 @@ SOFTWARE.
 //------------------------------------------------------------------------------
 enum WRGCFlags
 {
-	GCFlag_SkipGC = 1<<0,
+	GCFlag_NoContext = 1<<0,
 	GCFlag_Marked = 1<<1,
 };
 
@@ -1140,12 +1140,6 @@ public:
 			g_free( m_Cdata );
 		}
 	}
-};
-
-//------------------------------------------------------------------------------
-class WRGCHashReference : public WRGCBase
-{
-public:
 };
 
 //------------------------------------------------------------------------------
@@ -1235,8 +1229,6 @@ struct WRContext
 {
 	uint16_t globals;
 
-	// how many bytes wrench must allocate before running the gc, default WRENCH_DEFAULT_ALLOCATED_MEMORY_LIMIT
-	uint16_t allocatedMemoryLimit;
 	uint32_t allocatedMemoryHint; // _approximately_ how much memory has been allocated since last gc
 	
 	const unsigned char* bottom;
@@ -1290,9 +1282,6 @@ struct WRLibraryCleanup
 //------------------------------------------------------------------------------
 struct WRState
 {
-	uint16_t stackSize; // how much stack to give each context
-	int8_t err;
-
 #ifdef WRENCH_TIME_SLICES
 	int instructionsPerSlice;
 	int sliceInstructionCount;
@@ -1304,6 +1293,11 @@ struct WRState
 	WRLibraryCleanup* libCleanupFunctions;
 	
 	WRGCObject globalRegistry;
+
+	uint16_t allocatedMemoryLimit; // WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT by default
+	uint16_t stackSize; // how much stack to give each context
+	int8_t err;
+
 };
 
 void wr_addLibraryCleanupFunction( WRState* w, void(*function)(WRState *w, void* param), void* param );
@@ -1356,7 +1350,7 @@ extern WRTargetFunc wr_ANDBinary[16];
 extern WRTargetFunc wr_ORBinary[16];
 extern WRTargetFunc wr_XORBinary[16];
 
-void doIndexHash( WRValue* index, WRValue* value, WRValue* target );
+void wr_doIndexHash( WRValue* index, WRValue* value, WRValue* target );
 typedef void (*WRStateFunc)( WRContext* c, WRValue* to, WRValue* from, WRValue* target );
 extern WRStateFunc wr_index[16];
 extern WRStateFunc wr_assignAsHash[4];
@@ -1390,6 +1384,9 @@ extern WRReturnFunc wr_CompareEQ[16];
 
 uint32_t wr_hash_read8( const void* dat, const int len );
 uint32_t wr_hashStr_read8( const char* dat );
+
+bool wr_concatStringCheck( WRValue* to, WRValue* from, WRValue* target );
+void wr_valueToEx( const WRValue* ex, WRValue* value );
 
 #define WR_FLOATS_EQUAL(f1,f2) (fabsf((f1) - (f2)) < (fabsf((f1)*.0000005f)));
 
@@ -10694,7 +10691,7 @@ void WRContext::mark( WRValue* s )
 	else if ( svb->m_type == SV_HASH_ENTRY )
 	{
 		// mark the referenced table so it is not collected
-		((WRGCHashReference*)svb)->m_referencedTable->m_flags |= GCFlag_Marked;
+		((WRGCBase*)svb)->m_referencedTable->m_flags |= GCFlag_Marked;
 	}
 
 	svb->m_flags |= GCFlag_Marked;
@@ -10703,7 +10700,7 @@ void WRContext::mark( WRValue* s )
 //------------------------------------------------------------------------------
 void WRContext::gc( WRValue* stackTop )
 {
-	if ( allocatedMemoryHint < allocatedMemoryLimit )
+	if ( allocatedMemoryHint < w->allocatedMemoryLimit )
 	{
 		return;
 	}
@@ -10786,7 +10783,7 @@ WRGCObject* WRContext::getSVA( int size, WRGCObjectType type, bool init )
 }
 
 /*******************************************************************************
-Copyright (c) 2024 Curt Hartung -- curt.hartung@gmail.com
+Copyright (c) 2025 Curt Hartung -- curt.hartung@gmail.com
 
 MIT Licence
 
@@ -11425,8 +11422,6 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 
 	if ( function )
 	{
-		context->gc( stackTop );
-
 		stackTop->p = 0;
 		(stackTop++)->p2 = INIT_AS_INT;
 
@@ -11436,7 +11431,9 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		}
 		
 		pc = context->stopLocation;
-		
+
+		context->gc( stackTop + 1 );
+
 		goto callFunction;
 	}
 
@@ -12108,13 +12105,7 @@ hashIndexJump:
 				goto indexTempLiteralPostLoad;
 #else
 				stackTop->p2 = INIT_AS_INT;
-
-				
-				doIndexHash( stackTop, register0, stackTop - 1);
-//				wr_index[(WR_INT << 2) | register0->type](context, stackTop, register0, stackTop - 1);
-
-
-
+				wr_doIndexHash( stackTop, register0, stackTop - 1);
 				CONTINUE;
 #endif
 			}
@@ -14116,6 +14107,7 @@ WRState* wr_newState( int stackSize )
 	w->globalRegistry.growHash( WRENCH_NULL_HASH, 0 );
 
 	w->stackSize = stackSize;
+	w->allocatedMemoryLimit = WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT;
 
 	return w;
 }
@@ -14218,8 +14210,6 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 	C->globals = globals;
 	
 	C->stack = stack ? stack : (WRValue *)(C->localFunctions + localFuncs);
-
-	C->allocatedMemoryLimit = WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT;
 
 	C->flags |= takeOwnership ? WRC_OwnsMemory : 0;
 	
@@ -14350,7 +14340,7 @@ void wr_destroyContextEx( WRContext* context )
 {
 	// g_free all memory allocations by forcing the gc to collect everything
 	context->globals = 0;
-	context->allocatedMemoryHint = context->allocatedMemoryLimit;
+	context->allocatedMemoryHint = (uint16_t)-1;
 	context->gc( 0 );
 
 	wr_freeGCChain( context->registry.m_nextGC );
@@ -14424,9 +14414,9 @@ bool wr_runCommand( WRState* w, const char* sourceCode, const int size )
 }
 
 //------------------------------------------------------------------------------
-void wr_setAllocatedMemoryGCHint( WRContext* context, const uint16_t bytes )
+void wr_setAllocatedMemoryGCHint( WRState* state, const uint16_t bytes )
 {
-	context->allocatedMemoryLimit = bytes;
+	state->allocatedMemoryLimit = bytes;
 }
 
 //------------------------------------------------------------------------------
@@ -15040,7 +15030,7 @@ WRValue& wr_makeString( WRContext* context, WRValue* val, const char* data, cons
 	}
 #endif
 	val->p2 = INIT_AS_ARRAY;
-	memcpy( (unsigned char *)val->va->m_data, data, slen );
+	memcpy( val->va->m_SCdata, data, slen );
 	return *val;
 }
 
@@ -15059,7 +15049,7 @@ void wr_makeContainer( WRValue* val, const uint16_t sizeHint )
 
 	val->va->init( sizeHint, SV_HASH_TABLE, false);
 	
-	val->va->m_flags |= GCFlag_SkipGC;
+	val->va->m_flags |= GCFlag_NoContext;
 	val->p2 = INIT_AS_HASH_TABLE;
 }
 
@@ -15100,11 +15090,11 @@ WRValue* wr_addToContainerEx( const char* name, WRValue* container )
 	
 	key.va->init( len, SV_CHAR, false);
 
-	key.va->m_flags |= GCFlag_SkipGC;
+	key.va->m_flags |= GCFlag_NoContext;
 	key.p2 = INIT_AS_ARRAY;
 	memcpy(key.va->m_Cdata, name, len);
 
-	WRValue* entry = (WRValue*)container->va->get(key.getHash());
+	WRValue* entry = (WRValue*)container->va->get( key.getHash() );
 	*(entry + 1) = key;
 
 	return entry;
@@ -17525,27 +17515,63 @@ SOFTWARE.
 //------------------------------------------------------------------------------
 bool wr_concatStringCheck( WRValue* to, WRValue* from, WRValue* target )
 {
-	if ( !(IS_ARRAY(to->xtype) && to->va->m_type == SV_CHAR && !(to->va->m_flags & GCFlag_SkipGC)
-		   && IS_ARRAY(from->xtype) && from->va->m_type == SV_CHAR) )
+	const int c_bufSize = 20;
+	char buf[c_bufSize + 1];
+	char* str = buf;
+	unsigned int len;
+
+	if ( IS_ARRAY(to->xtype) && to->va->m_type == SV_CHAR && !(to->va->m_flags & GCFlag_NoContext) )
 	{
-		return false;
-	}
-	
-	WRGCObject* cat = to->va->m_creatorContext->getSVA(to->va->m_size + from->va->m_size, SV_CHAR, false);
+		if ( IS_ARRAY(from->xtype) && from->va->m_type == SV_CHAR )
+		{
+			str = from->va->m_SCdata;
+			len = from->va->m_size;
+		}
+		else
+		{
+			from->asString( buf, c_bufSize, &len );
+		}
+
+		WRGCObject* cat = to->va->m_creatorContext->getSVA(to->va->m_size + len, SV_CHAR, false);
 
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
-	if ( !cat )
-	{
-		target->p2 = INIT_AS_INT;
-		return false;
-	}
+		if ( !cat )
+		{
+			target->p2 = INIT_AS_INT;
+			return false;
+		}
 #endif
 
-	memcpy( cat->m_SCdata, to->va->m_SCdata, to->va->m_size );
-	memcpy( cat->m_SCdata + to->va->m_size, from->va->m_SCdata, from->va->m_size );
-	
-	target->p2 = INIT_AS_ARRAY;
-	target->va = cat;
+		memcpy( cat->m_SCdata, to->va->m_SCdata, to->va->m_size );
+		memcpy( cat->m_SCdata + to->va->m_size, str, len );
+
+		target->p2 = INIT_AS_ARRAY;
+		target->va = cat;
+	}
+	else if ( IS_ARRAY(from->xtype) && from->va->m_type == SV_CHAR && !(from->va->m_flags & GCFlag_NoContext) )
+	{
+		to->asString( buf, c_bufSize, &len );
+
+		WRGCObject* cat = from->va->m_creatorContext->getSVA(from->va->m_size + len, SV_CHAR, false);
+
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !cat )
+		{
+			target->p2 = INIT_AS_INT;
+			return false;
+		}
+#endif
+
+		memcpy( cat->m_SCdata, str, len );
+		memcpy( cat->m_SCdata + len, from->va->m_SCdata, from->va->m_size );
+
+		target->p2 = INIT_AS_ARRAY;
+		target->va = cat;
+	}
+	else
+	{
+		return false;
+	}
 
 	return true;
 }
@@ -17915,11 +17941,31 @@ WRVoidFunc wr_assign[16] =
 	doAssign_R_I,  doAssign_R_F,  doAssign_R_R,   doAssign_R_E,
 	doAssign_E_X,  doAssign_E_X,  doAssign_E_R,   doAssign_E_X,
 };
+/*******************************************************************************
+Copyright (c) 2025 Curt Hartung -- curt.hartung@gmail.com
 
-//==================================================================================
-//==================================================================================
-//==================================================================================
-//==================================================================================
+MIT Licence
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*******************************************************************************/
+
+#include "wrench.h"
 
 #ifdef WRENCH_COMPACT
 
@@ -17947,15 +17993,6 @@ void FuncAssign_R_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFl
 {
 	wr_FuncAssign[(to->r->type<<2)|WR_EX](to->r, from, intCall, floatCall);
 }
-void FuncAssign_E_X( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
-{
-	WRValue& V = to->singleValue();
-	
-	wr_FuncAssign[(V.type<<2)|from->type]( &V, from, intCall, floatCall );
-	
-	wr_valueToEx( to, &V );
-	*from = V;
-}
 void FuncAssign_E_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall ) 
 {
 	if ( IS_CONTAINER_MEMBER(from->xtype) )
@@ -17970,10 +18007,28 @@ void FuncAssign_E_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFl
 		*from = *to;
 	}
 }
+void FuncAssign_E_X( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
+{
+	if ( wr_concatStringCheck(to, from, to) )
+	{
+		*from = *to;
+	}
+	else
+	{
+		WRValue& V = to->singleValue();
+		wr_FuncAssign[(V.type<<2)|from->type]( &V, from, intCall, floatCall );
+		wr_valueToEx( to, &V );
+		*from = V;
+	}
+}
 void FuncAssign_X_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
 {
-	WRValue& V = from->singleValue();
-	wr_FuncAssign[(to->type<<2)|V.type](to, &V, intCall, floatCall);
+	if ( !wr_concatStringCheck(to, from, to) )
+	{
+		WRValue& V = from->singleValue();
+		wr_FuncAssign[(to->type<<2)|V.type](to, &V, intCall, floatCall);
+	}
+
 	*from = *to;
 }
 void FuncAssign_E_R( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
@@ -18030,8 +18085,11 @@ WRFuncAssignFunc wr_FuncAssign[16] =
 //------------------------------------------------------------------------------
 void FuncBinary_E_X( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall intCall, WRFuncFloatCall floatCall  )
 {
-	WRValue& V = to->singleValue();
-	wr_funcBinary[(V.type<<2)|from->type](&V, from, target, intCall, floatCall);
+	if ( intCall != wr_addI || !wr_concatStringCheck(to, from, target) )
+	{
+		WRValue& V = to->singleValue();
+		wr_funcBinary[(V.type<<2)|from->type](&V, from, target, intCall, floatCall);
+	}
 }
 void FuncBinary_E_E( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall intCall, WRFuncFloatCall floatCall  )
 {
@@ -18048,8 +18106,11 @@ void FuncBinary_E_E( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall 
 }
 void FuncBinary_X_E( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall intCall, WRFuncFloatCall floatCall  )
 {
-	WRValue& V = from->singleValue();
-	wr_funcBinary[(to->type<<2)|V.type](to, &V, target, intCall, floatCall);
+	if ( intCall != wr_addI || !wr_concatStringCheck(to, from, target) )
+	{
+		WRValue& V = from->singleValue();
+		wr_funcBinary[(to->type<<2)|V.type](to, &V, target, intCall, floatCall);
+	}
 }
 void FuncBinary_E_R( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall intCall, WRFuncFloatCall floatCall  )
 {
@@ -18139,13 +18200,35 @@ WRBoolCallbackReturnFunc wr_Compare[16] =
 	Compare_E_X, Compare_E_X, Compare_E_R, Compare_E_E,
 };
 
-//==================================================================================
-//==================================================================================
-//==================================================================================
-//==================================================================================
-#else 
 
-// NOT COMPACT
+#endif
+/*******************************************************************************
+Copyright (c) 2025 Curt Hartung -- curt.hartung@gmail.com
+
+MIT Licence
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*******************************************************************************/
+
+#include "wrench.h"
+
+#ifndef WRENCH_COMPACT
 
 void doVoidFuncBlank( WRValue* to, WRValue* from ) {}
 
@@ -18438,22 +18521,28 @@ WRVoidFunc wr_DivideAssign[16] =
 
 void wr_AddAssign_E_I( WRValue* to, WRValue* from )
 {
-	WRValue& V = to->singleValue();
+	if ( !wr_concatStringCheck( to, from, to) )
+	{
+		WRValue& V = to->singleValue();
 	
-	wr_AddAssign[(V.type<<2)|WR_INT]( &V, from );
+		wr_AddAssign[(V.type<<2)|WR_INT]( &V, from );
 	
-	wr_valueToEx( to, &V );
-	*from = V;
+		wr_valueToEx( to, &V );
+		*from = V;
+	}
 }
 
 void wr_AddAssign_E_F( WRValue* to, WRValue* from )
 {
-	WRValue& V = to->singleValue();
+	if ( !wr_concatStringCheck( to, from, to) )
+	{
+		WRValue& V = to->singleValue();
 
-	wr_AddAssign[(V.type<<2)|WR_FLOAT]( &V, from );
-
-	wr_valueToEx( to, &V );
-	*from = V;
+		wr_AddAssign[(V.type<<2)|WR_FLOAT]( &V, from );
+		
+		wr_valueToEx( to, &V );
+		*from = V;
+	}
 }
 void wr_AddAssign_E_E( WRValue* to, WRValue* from ) 
 {
@@ -18471,15 +18560,21 @@ void wr_AddAssign_E_E( WRValue* to, WRValue* from )
 }
 void wr_AddAssign_I_E( WRValue* to, WRValue* from )
 {
-	WRValue& V = from->singleValue();
-	wr_AddAssign[(WR_INT<<2)|V.type](to, &V);
-	*from = *to;
+	if ( !wr_concatStringCheck( to, from, to) )
+	{
+		WRValue& V = from->singleValue();
+		wr_AddAssign[(WR_INT<<2)|V.type](to, &V);
+		*from = *to;
+	}
 }
 void wr_AddAssign_F_E( WRValue* to, WRValue* from )
 {
-	WRValue& V = from->singleValue();
-	wr_AddAssign[(WR_FLOAT<<2)|V.type](to, &V);
-	*from = *to;
+	if ( !wr_concatStringCheck( to, from, to) )
+	{
+		WRValue& V = from->singleValue();
+		wr_AddAssign[(WR_FLOAT<<2)|V.type](to, &V);
+		*from = *to;
+	}
 }
 void wr_AddAssign_E_R( WRValue* to, WRValue* from )
 {
@@ -18665,9 +18760,22 @@ WRTargetFunc wr_DivideBinary[16] =
 
 void wr_AdditionBinary_E_I( WRValue* to, WRValue* from, WRValue* target )
 {
-	WRValue& V = to->singleValue();
-	wr_AdditionBinary[(V.type<<2)|WR_INT](&V, from, target);
+	if ( !wr_concatStringCheck(to, from, target) )
+	{
+		WRValue& V = to->singleValue();
+		wr_AdditionBinary[(V.type<<2)|WR_INT](&V, from, target);
+	}
 }
+
+void wr_AdditionBinary_I_E(WRValue* to, WRValue* from, WRValue* target)
+{
+	if ( !wr_concatStringCheck(to, from, target) )
+	{
+		WRValue& V = from->singleValue();
+		wr_AdditionBinary[(WR_INT << 2) | V.type](to, &V, target);
+	}
+}
+
 void wr_AdditionBinary_E_F( WRValue* to, WRValue* from, WRValue* target )
 {
 	WRValue& V = to->singleValue();
@@ -18685,11 +18793,6 @@ void wr_AdditionBinary_E_E( WRValue* to, WRValue* from, WRValue* target )
 	{
 		wr_concatStringCheck( to, from, target );
 	}
-}
-void wr_AdditionBinary_I_E( WRValue* to, WRValue* from, WRValue* target )
-{
-	WRValue& V = from->singleValue();
-	wr_AdditionBinary[(WR_INT<<2)|V.type](to, &V, target);
 }
 void wr_AdditionBinary_F_E( WRValue* to, WRValue* from, WRValue* target )
 {
@@ -19019,7 +19122,7 @@ void arrayElementToTarget( const uint32_t index, WRValue* target, WRValue* value
 }
 
 //------------------------------------------------------------------------------
-void doIndexHash( WRValue* index, WRValue* value, WRValue* target )
+void wr_doIndexHash( WRValue* index, WRValue* value, WRValue* target )
 {
 	uint32_t hash = index->getHash();
 
@@ -19086,7 +19189,7 @@ void doIndex_I_E( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 
 		if (EXPECTS_HASH_INDEX(value->xtype))
 		{
-			doIndexHash( index, value, target );
+			wr_doIndexHash( index, value, target );
 			return;
 		}
 
@@ -19130,13 +19233,13 @@ void doIndex_I_E( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 #endif
 				value->p2 = INIT_AS_HASH_TABLE;
 
-				doIndexHash( I, value, target );
+				wr_doIndexHash( I, value, target );
 				return;
 			}
 		}
 		else if ( index->ui >= value->va->m_size )
 		{
-			if ( value->va->m_flags & GCFlag_SkipGC )
+			if ( value->va->m_flags & GCFlag_NoContext )
 			{
 boundsFailed:
 				target->init();
@@ -19185,7 +19288,7 @@ void doIndex_E_E( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 		}
 		else
 		{
-			doIndexHash( I, V, target );
+			wr_doIndexHash( I, V, target );
 		}
 	}
 	else
@@ -19408,8 +19511,6 @@ int wr_ftoa( float f, char* string, size_t len )
 //------------------------------------------------------------------------------
 void wr_std_rand( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 0 )
 	{
 		WRValue* args = stackTop - argn;
@@ -19457,7 +19558,6 @@ void wr_std_time( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_std_time( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
 }
 #endif
 
@@ -19507,6 +19607,7 @@ void wr_loadAllLibs( WRState* w )
 	wr_loadSerializeLib( w );
 	wr_loadDebugLib( w );
 	wr_loadTCPLib( w );
+	wr_loadContainerLib( w );
 }
 /*******************************************************************************
 Copyright (c) 2022 Curt Hartung -- curt.hartung@gmail.com
@@ -19587,7 +19688,6 @@ void wr_read_file( WRValue* stackTop, const int argn, WRContext* c )
 				stackTop->p2 = INIT_AS_ARRAY;
 				if ( fread(stackTop->va->m_Cdata, sbuf.st_size, 1, infil) != 1 )
 				{
-					stackTop->init();
 					return;
 				}
 			}
@@ -20494,8 +20594,6 @@ WRFSFile* wr_safeGetFile( const void* p )
 //------------------------------------------------------------------------------
 void wr_read_file( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn != 1 )
 	{
 		return;
@@ -20528,8 +20626,6 @@ void wr_read_file( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_write_file( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn != 2 )
 	{
 		return;
@@ -20572,8 +20668,6 @@ void wr_getline( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_ioOpen( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( !argn )
 	{
 		return;
@@ -20635,8 +20729,6 @@ void wr_ioClose( WRValue* stackTop, const int argn, WRContext* c )
 		return;
 	}
 
-	stackTop->init();
-
 	WRFSFile* prev = 0;
 	WRFSFile* cur = g_OpenFiles;
 	while( cur )
@@ -20666,8 +20758,6 @@ void wr_ioClose( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_ioRead( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn != 2 )
 	{
 		return;
@@ -20704,8 +20794,6 @@ void wr_ioRead( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_ioWrite( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn != 2 )
 	{
 		return;
@@ -20752,8 +20840,6 @@ void wr_ioWrite( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_ioSeek( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 1 )
 	{
 		WRValue* args = stackTop - argn;
@@ -21250,17 +21336,11 @@ void wr_format( WRValue* stackTop, const int argn, WRContext* c )
 		WRValue* args = stackTop - argn;
 		wr_doSprintf( *stackTop, args->deref(), args + 1, argn - 1, c );
 	}
-	else
-	{
-		stackTop->init();
-	}
 }
 
 //------------------------------------------------------------------------------
 void wr_sprintf( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if( argn > 1 )
 	{
 		WRValue* args = stackTop - argn;
@@ -21324,8 +21404,6 @@ void wr_isalnum( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_mid( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-	
 	if ( argn < 2 )
 	{
 		return;
@@ -21459,7 +21537,6 @@ void wr_toupper( WRValue* stackTop, const int argn, WRContext* c )
 void wr_tol( WRValue* stackTop, const int argn, WRContext* c )
 {
 	char buf[21];
-	stackTop->init();
 	if ( argn == 2 )
 	{
 		stackTop->i = (int)strtol( stackTop[-2].asString(buf, 20), 0, stackTop[-1].asInt() );
@@ -21504,8 +21581,6 @@ void wr_concat( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_left( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn < 2 )
 	{
 		return;
@@ -21540,8 +21615,6 @@ void wr_left( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_right( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-	
 	if ( argn < 2 )
 	{
 		return;
@@ -21575,8 +21648,6 @@ void wr_right( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_trimright( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	WRValue* args = stackTop - argn;
 	const char* data;
 	int len = 0;
@@ -21605,8 +21676,6 @@ void wr_trimright( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_trimleft( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	WRValue* args = stackTop - argn;
 	const char* data;
 	unsigned int len = 0;
@@ -21634,8 +21703,6 @@ void wr_trimleft( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_trim( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	WRValue* args = stackTop - argn;
 	const char* data;
 	int len = 0;
@@ -21666,8 +21733,6 @@ void wr_trim( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_insert( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn < 3 )
 	{
 		return;
@@ -22015,7 +22080,6 @@ void wr_math_deg2rad( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_intScale(WRValue* stackTop, const int argn, WRContext* c)
 {
-	stackTop->init();
 	int32_t res = 0;
 
 	if (argn > 2)
@@ -22113,8 +22177,6 @@ void wr_mboxRead( WRValue* stackTop, const int argn, WRContext* c )
 		}
 
 	}
-
-	stackTop->init();
 }
 
 //------------------------------------------------------------------------------
@@ -22151,8 +22213,6 @@ void wr_mboxClear( WRValue* stackTop, const int argn, WRContext* c )
 // return : true/false
 void wr_mboxPeek( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 0
 		 && c->w->globalRegistry.exists((stackTop - argn)->getHash(), false) )
 	{
@@ -22200,8 +22260,6 @@ SOFTWARE.
 //         : 2 - function is in wrench (was in source code)
 void wr_isFunction( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 0 )
 	{
 		WRValue* arg = stackTop - argn;
@@ -22220,8 +22278,6 @@ void wr_isFunction( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_importByteCode( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 0 )
 	{
 		unsigned int len;
@@ -22245,8 +22301,6 @@ void wr_importByteCode( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_importCompile( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
-
 	if ( argn > 0 )
 	{
 		unsigned int len;
@@ -22313,7 +22367,6 @@ SOFTWARE.
 //------------------------------------------------------------------------------
 void wr_stdSerialize( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
 	if ( argn )
 	{
 		char* buf;
@@ -22338,7 +22391,6 @@ void wr_stdSerialize( WRValue* stackTop, const int argn, WRContext* c )
 //------------------------------------------------------------------------------
 void wr_stdDeserialize( WRValue* stackTop, const int argn, WRContext* c )
 {
-	stackTop->init();
 	if ( argn )
 	{
 		WRValue& V = (stackTop - argn)->deref();
@@ -22360,6 +22412,426 @@ void wr_loadSerializeLib( WRState* w )
 	wr_registerLibraryFunction( w, "std::serialize", wr_stdSerialize );
 	wr_registerLibraryFunction( w, "std::deserialize", wr_stdDeserialize );
 }
+/*******************************************************************************
+Copyright (c) 2025 Curt Hartung -- curt.hartung@gmail.com
+
+MIT Licence
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*******************************************************************************/
+
+#include "wrench.h"
+
+//------------------------------------------------------------------------------
+WRValue* wr_ifValueArray( WRValue* val )
+{
+	WRValue* ret = &(val->deref());
+	return (IS_ARRAY(ret->xtype) && ret->va->m_type == SV_VALUE) ? ret : 0;
+}
+
+//------------------------------------------------------------------------------
+WRValue* wr_ifHash( WRValue* val )
+{
+	WRValue* ret = &(val->deref());
+	return IS_HASH_TABLE(ret->xtype) ? ret : 0;
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayCount( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	if( argn == 0 || !(A = wr_ifValueArray(stackTop - argn)) )
+	{
+		return;
+	}
+
+	stackTop->ui = A->va->m_size;
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayClear( WRValue* stackTop, const int argn, WRContext* c )
+{
+	if ( argn >= 1 )
+	{
+		WRValue* args = stackTop - argn;
+
+		WRValue* A = &(args->deref());
+
+		A->p2 = INIT_AS_ARRAY;
+
+		unsigned int count = 0;
+		if ( argn > 1 )
+		{
+			count = args[1].asInt();
+		}
+		
+		A->va = c->getSVA( count, SV_VALUE, false );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !A->va )
+		{
+			A->p2 = INIT_AS_INT;
+			return;
+		}
+#endif
+
+		*stackTop = *A;
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPeek( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	if( argn == 0 || !(A = wr_ifValueArray(stackTop - argn)) )
+	{
+		return;
+	}
+
+	if ( A->va->m_size > 0 )
+	{
+		stackTop->p2 = INIT_AS_CONTAINER_MEMBER;// | ENCODE_ARRAY_ELEMENT_TO_P2( 0 );
+		stackTop->r = A;
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPeekBack( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	if( argn == 0 || !(A = wr_ifValueArray(stackTop - argn)) )
+	{
+		return;
+	}
+
+	if ( A->va->m_size > 0 )
+	{
+		stackTop->p2 = INIT_AS_CONTAINER_MEMBER | ENCODE_ARRAY_ELEMENT_TO_P2( A->va->m_size - 1 );
+		stackTop->r = A;
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayRemoveEx( WRValue* A, const unsigned int where, const int count, WRValue* stackTop, WRContext* c )
+{
+	if ( where < A->va->m_size )
+	{
+		unsigned int from = where + count;
+		if ( from >= A->va->m_size )
+		{
+			A->va->m_size = where; // simple truncation
+		}
+		else
+		{
+			unsigned int elements = A->va->m_size - from;
+
+			memmove( (char*)(A->va->m_Vdata + where), // to here
+					 (char*)(A->va->m_Vdata + from),   // from here
+					 elements * sizeof(WRValue) ); // this many
+
+			A->va->m_size -= count;
+		}
+
+		c->gc( stackTop + 1 );
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayRemove( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 2) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	unsigned int where = (unsigned int)(args[1].asInt());
+
+	int count = 1;
+	if ( argn > 2 )
+	{
+		count = args[2].asInt();
+	}
+
+	wr_arrayRemoveEx( A, where, count, stackTop, c );
+
+	*stackTop = *A;
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayTruncate( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 1) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	unsigned int size = (unsigned int)(args[1].asInt());
+
+	if ( size < A->va->m_size )
+	{
+		A->va->m_size = size; // *snip*
+		c->gc( stackTop + 1 );
+	}
+
+	*stackTop = *A;
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayInsertEx( WRValue* A, const unsigned int where, const unsigned int count, WRValue* stackTop, WRContext* c )
+{
+	unsigned int originalSize = A->va->m_size;
+	// accomodate new size (passed value is expected to be the highest accessible index)
+	wr_growValueArray( A->va, originalSize + (count - 1) );
+
+	// move tail of array UP "count" entries
+	unsigned int entries = originalSize - where;
+	if ( entries )
+	{
+		unsigned int to = where + count;
+
+		memmove( (char*)(A->va->m_Vdata + to),
+				 (char*)(A->va->m_Vdata + where),
+				 entries * sizeof(WRValue) );
+
+		memset( (char*)(A->va->m_Vdata + where),
+				0,
+				count * sizeof(WRValue) );
+	}
+
+	c->gc( stackTop + 1 );
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayInsert( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 2) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	unsigned int where = (unsigned int)(args[1].asInt());
+
+	int count = 1;
+	if ( argn > 2 )
+	{
+		count = args[2].asInt();
+	}
+
+	wr_arrayInsertEx( A, where, count, stackTop, c );
+
+	*stackTop = *A;
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPop( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 1) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	if ( A->va->m_size )
+	{
+		*stackTop = *A->va->m_Vdata;
+		wr_arrayRemoveEx( A, 0, 1, stackTop, c );
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPopBack( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 1) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	if ( A->va->m_size )
+	{
+		--A->va->m_size;
+		*stackTop = A->va->m_Vdata[A->va->m_size];
+		c->gc( stackTop + 1 );
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPushBack( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 2) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	const unsigned int where = A->va->m_size;
+
+	wr_arrayInsertEx( A, where, 1, stackTop, c );
+	A->va->m_Vdata[where] = args[1];
+}
+
+//------------------------------------------------------------------------------
+void wr_arrayPush( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* A;
+	WRValue* args = stackTop - argn;
+
+	if( (argn < 2) || !(A = wr_ifValueArray(args)) )
+	{
+		return;
+	}
+
+	wr_arrayInsertEx( A, 0, 1, stackTop, c );
+	A->va->m_Vdata[0] = args[1];
+}
+
+//------------------------------------------------------------------------------
+void wr_hashClear( WRValue* stackTop, const int argn, WRContext* c )
+{
+	if ( argn >= 1 )
+	{
+		WRValue* A = &((stackTop - argn)->deref());
+
+		A->p2 = INIT_AS_HASH_TABLE;
+		A->va = c->getSVA( 0, SV_HASH_TABLE, false );
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !A->va )
+		{
+			A->p2 = INIT_AS_INT;
+			return;
+		}
+#endif
+
+		*stackTop = *A;
+		
+		c->gc( stackTop + 1 );
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_hashCount( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* H;
+	if( argn == 0 || !(H = wr_ifHash(stackTop - argn)) )
+	{
+		return;
+	}
+
+	stackTop->ui = H->va->m_size;
+}
+
+//------------------------------------------------------------------------------
+void wr_hashAdd( WRValue* stackTop, const int argn, WRContext* c )
+{
+	WRValue* H;
+	WRValue* args = stackTop - argn;
+	if( argn < 3 || !(H = wr_ifHash(args)) )
+	{
+		return;
+	}
+
+	uint32_t hash = args[2].getHash(); // key
+	int element;
+	WRValue* entry = (WRValue*)( H->va->get(hash, &element) );
+
+	*entry = args[1].deref();
+	*(entry + 1) = args[2].deref();
+
+	stackTop->p2 = INIT_AS_CONTAINER_MEMBER | ENCODE_ARRAY_ELEMENT_TO_P2( element );
+	stackTop->vb = (WRGCBase*)(H->va->m_Vdata) - 1;
+}
+
+//------------------------------------------------------------------------------
+void wr_hashExistEx( WRValue* stackTop, const int argn, bool remove )
+{
+	WRValue* H;
+	WRValue* args = stackTop - argn;
+	if( (argn >= 2) && (H = wr_ifHash(args)) )
+	{
+		stackTop->p = H->va->exists( args[1].getHash(), remove );
+	}
+}
+
+//------------------------------------------------------------------------------
+void wr_hashRemove( WRValue* stackTop, const int argn, WRContext* c )
+{
+	wr_hashExistEx( stackTop, argn, true );
+}
+
+//------------------------------------------------------------------------------
+void wr_hashExists( WRValue* stackTop, const int argn, WRContext* c )
+{
+	wr_hashExistEx( stackTop, argn, false );
+}
+
+//------------------------------------------------------------------------------
+void wr_loadContainerLib( WRState* w )
+{
+	wr_registerLibraryFunction( w, "array::clear", wr_arrayClear );       // ( array )
+	wr_registerLibraryFunction( w, "array::count", wr_arrayCount );       // ( array )
+	wr_registerLibraryFunction( w, "array::remove", wr_arrayRemove );     // ( array, where, [count == 1] )
+	wr_registerLibraryFunction( w, "array::insert", wr_arrayInsert );     // ( array, where, [count == 1] )
+	wr_registerLibraryFunction( w, "array::truncate", wr_arrayTruncate ); // ( array, newSize )
+
+	wr_registerLibraryFunction( w, "hash::clear", wr_hashClear );   // ( hash )
+	wr_registerLibraryFunction( w, "hash::count", wr_hashCount );   // ( hash )
+	wr_registerLibraryFunction( w, "hash::add", wr_hashAdd );       // ( hash, item, key )
+	wr_registerLibraryFunction( w, "hash::remove", wr_hashRemove ); // ( hash, key )
+	wr_registerLibraryFunction( w, "hash::exists", wr_hashExists ); // ( hash, key )
+
+	wr_registerLibraryFunction( w, "list::clear", wr_arrayClear );        // ( list )
+	wr_registerLibraryFunction( w, "list::count", wr_arrayCount );        // ( list )
+	wr_registerLibraryFunction( w, "list::peek", wr_arrayPeek );          // ( list )
+	wr_registerLibraryFunction( w, "list::pop", wr_arrayPop );            // ( list )
+	wr_registerLibraryFunction( w, "list::pop_front", wr_arrayPop );      // ( list )
+	wr_registerLibraryFunction( w, "list::pop_back", wr_arrayPopBack );   // ( list )
+	wr_registerLibraryFunction( w, "list::push", wr_arrayPush );          // ( list, item )
+	wr_registerLibraryFunction( w, "list::push_front", wr_arrayPush );    // ( list, item )
+	wr_registerLibraryFunction( w, "list::push_back", wr_arrayPushBack ); // ( list )
+
+	wr_registerLibraryFunction( w, "queue::clear", wr_arrayClear );   // ( q )
+	wr_registerLibraryFunction( w, "queue::count", wr_arrayCount );   // ( q )
+	wr_registerLibraryFunction( w, "queue::push", wr_arrayPush );     // ( q, item )
+	wr_registerLibraryFunction( w, "queue::pop", wr_arrayPopBack );   // ( q )
+	wr_registerLibraryFunction( w, "queue::peek", wr_arrayPeekBack ); // ( q )
+
+	wr_registerLibraryFunction( w, "stack::clear", wr_arrayClear ); // ( stack )
+	wr_registerLibraryFunction( w, "stack::count", wr_arrayCount ); // ( stack )
+	wr_registerLibraryFunction( w, "stack::push", wr_arrayPush );   // ( stack, item )
+	wr_registerLibraryFunction( w, "stack::pop", wr_arrayPop );     // ( stack )
+	wr_registerLibraryFunction( w, "stack::peek", wr_arrayPeek );   // ( stack )
+}
+
 
 /*******************************************************************************
 Copyright (c) 2022 Curt Hartung -- curt.hartung@gmail.com

@@ -6,10 +6,11 @@
 class MatrixManager
 {
 public:
-    MatrixManager(Pixel_t *pixels, WS2812* ledstrip)
+    MatrixManager(Pixel_t* pixels, WS2812* ledstrip, bool inverse = false)
     {
         this->pixels = pixels;
         this->ledstrip = ledstrip;
+        this->inverse = inverse;
     }
 
     /**
@@ -43,7 +44,7 @@ public:
      * @param b blue value of the pixel
      * @param ignoreOutOfRange (optional) if true, the function won't complain if the coordinates are out of range
      */
-    void set(const int x, const int y,const int r, const int g, const int b, const bool ignoreOutOfRange = false)
+    void set(const int x, const int y, const int r, const int g, const int b, const bool ignoreOutOfRange = false)
     {
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
@@ -260,7 +261,6 @@ public:
      */
     void digit(const int x, const int y, const int n, uint32_t color)
     {
-
         switch (n)
         {
         case 0:
@@ -335,7 +335,6 @@ public:
             Serial.println(F("Invalid digit"));
             break;
         }
-
     }
 
     /**
@@ -389,7 +388,6 @@ public:
             Serial.println(F("Invalid Segment"));
             break;
         }
-
     }
 
     /**
@@ -524,12 +522,18 @@ public:
     }
 
 private:
-    Pixel_t *pixels;
+    Pixel_t* pixels;
     WS2812* ledstrip;
+    bool inverse = false;
     float currentTPS = 0;
 
-    int calculate_strip_pixel(const int x, const int y)
+    int calculate_strip_pixel(int x, int y)
     {
+        if (inverse)
+        {
+            x = 11 - x; //FOR MATRIX BUILD ON 11.01.2025
+        }
+
         if (x < 0 || x > 11 || y < 0 || y > 11)
         {
             Serial.println("Out of range\n");

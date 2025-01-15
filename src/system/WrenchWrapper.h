@@ -206,15 +206,15 @@ namespace wrench_wrapper
         // wr_registerFunction(w, "run_animation", wrench_wrapper::run_animation, ce);
         wr_registerFunction(w, "stop_animation", wrench_wrapper::stop_animation, ce);
 
-        wr_registerFunction(w, "set_pixel", wrench_wrapper::set_pixel, ce);
-        wr_registerFunction(w, "off_pixel", wrench_wrapper::off_pixel, ce);
-        wr_registerFunction(w, "fill_matrix", wrench_wrapper::fill_matrix, ce);
-        wr_registerFunction(w, "clear_matrix", wrench_wrapper::clear_matrix, ce);
-        wr_registerFunction(w, "draw_line", wrench_wrapper::draw_line, ce);
-        wr_registerFunction(w, "draw_rect", wrench_wrapper::draw_rect, ce);
-        wr_registerFunction(w, "draw_rect_filled", wrench_wrapper::draw_rect_filled, ce);
-        wr_registerFunction(w, "draw_circle", wrench_wrapper::draw_circle, ce);
-        wr_registerFunction(w, "draw_number", wrench_wrapper::draw_number, ce);
+        wr_registerFunction(w, "set", wrench_wrapper::set_pixel, ce);
+        wr_registerFunction(w, "off", wrench_wrapper::off_pixel, ce);
+        wr_registerFunction(w, "fill", wrench_wrapper::fill_matrix, ce);
+        wr_registerFunction(w, "clear", wrench_wrapper::clear_matrix, ce);
+        wr_registerFunction(w, "line", wrench_wrapper::draw_line, ce);
+        wr_registerFunction(w, "rect", wrench_wrapper::draw_rect, ce);
+        wr_registerFunction(w, "rect_filled", wrench_wrapper::draw_rect_filled, ce);
+        wr_registerFunction(w, "circle", wrench_wrapper::draw_circle, ce);
+        wr_registerFunction(w, "number", wrench_wrapper::draw_number, ce);
 
         //animations
         wr_registerFunction(w, "run_animation_splash", wrench_wrapper::run_animation_splash, ce);

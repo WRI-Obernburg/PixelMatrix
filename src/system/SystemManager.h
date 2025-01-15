@@ -9,7 +9,7 @@
 #include <ESPAsyncTCP.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
-//#include <ElegantOTA.h>
+#include <ElegantOTA.h>
 #include <ws2812_i2s.h>
 #define WRENCH_COMPACT
 #include "WrenchWrapper.h"
@@ -51,10 +51,16 @@ public:
         // init system
         pixels = new Pixel_t[144];
         ledstrip = new WS2812();
+        pinMode(D8, INPUT_PULLDOWN_16);
+        pinMode(D7, OUTPUT);
+        digitalWrite(D7, HIGH);
+        delay(100);
+        const bool inverse = digitalRead(D8) == HIGH;
+        Serial.println(digitalRead((D8)));
         ledstrip->init(144);
         ledstrip->show(pixels, 2.0f);
 
-        mm = new MatrixManager(pixels, ledstrip);
+        mm = new MatrixManager(pixels, ledstrip, inverse);
         cm = new ControlManager([this]()
         {
             if ((millis() - this->last_ws_update) > 500)
@@ -254,6 +260,7 @@ public:
             wrench_wrapper::register_wrench_functions(w, &ce);
             wr_loadMathLib(w);
             wr_loadStringLib(w);
+            wr_loadContainerLib(w);
 
 
             Serial.println(F("try to execute"));
@@ -269,7 +276,7 @@ public:
             }
 
             wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
-            wr_setAllocatedMemoryGCHint(wc,1000);
+            wr_setAllocatedMemoryGCHint(w,1000);
 
             //print wr_getLastError(w);
             Serial.println(wr_getLastError(w));
@@ -377,7 +384,7 @@ private:
         });
         webServer->addHandler(ws);
 
-        /*ElegantOTA.begin(webServer);
+        ElegantOTA.begin(webServer);
         ElegantOTA.onStart([this]()
         {
             Serial.println("OTA update started!");
@@ -406,7 +413,7 @@ private:
                 this->ota_progress = 0;
             }
         });
-        */
+
 
         // Start webserver
         dnsServer->start(53, "*", APIP); // DNS spoofing (Only for HTTP)
@@ -430,8 +437,9 @@ private:
 
         webServer->on("/api", HTTP_GET, [this](AsyncWebServerRequest* request)
         {
+
             JSONVar package;
-            package["version"] = "1.0.0";
+            package["version"] = "1.1.0";
             package["freeHeap"] = EspClass::getFreeHeap();
             package["bootCode"] = boot_code;
             package["ssid"] = WiFi.SSID();
@@ -439,15 +447,59 @@ private:
             package["mac"] = WiFi.macAddress();
             package["currentApp"] = current_internal_app->name;
             package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
+            AsyncWebServerResponse *response = request->beginResponse(200, F("application/json"), JSON.stringify(package));
 
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
 
-            request->send(200, F("application/json"), JSON.stringify(package));
+            request->send(response);
+
         });
+
+        webServer->on("/api", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+
+
+            AsyncWebServerResponse *response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+
+        });
+
+        webServer->on("/pushDevCode", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+       {
+
+
+           AsyncWebServerResponse *response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+          response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+          response->addHeader("Access-Control-Expose-Headers", "*");
+          response->addHeader("Access-Control-Allow-Headers", "*");
+          response->addHeader("Access-Control-Allow-Credentials", "true");
+           request->send(response);
+
+       });
 
         //push wrench code to the device
         webServer->on("/pushDevCode", HTTP_POST, [this](AsyncWebServerRequest* request)
         {
-            request->send(200, F("plain/text"), "OK");
+            AsyncWebServerResponse *response = request->beginResponse(204, F("application/json"), F("{\"success\":true}"));
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+           response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+           request->send(response);
         },nullptr,[this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total)
             {
 
