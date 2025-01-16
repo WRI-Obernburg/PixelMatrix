@@ -5,7 +5,7 @@
 #include "Application.h"
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
+//#include <ESP8266mDNS.h>
 #include <ESPAsyncTCP.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
@@ -91,19 +91,19 @@ public:
 
     void loop()
     {
-
         dnsServer->processNextRequest();
 
 
         yield();
-        //ElegantOTA.loop();
+
+        ElegantOTA.loop();
 
         if ((millis() - frame_timer) > (1000 / 50))
         {
             frame_timer = millis();
             if (!ota_update)
             {
-                if (current_internal_app->is_wrench )
+                if (current_internal_app->is_wrench)
                 {
                     if (!transmitting_wrench)
                     {
@@ -174,11 +174,10 @@ public:
             }
 
             Serial.println(EspClass::getFreeHeap());
-            MDNS.update();
+            // MDNS.update();
         }
 
         yield();
-
     }
 
     /**
@@ -252,7 +251,7 @@ public:
         cm->__internal_set_animation(nullptr);
         mm->clear();
 
-        current_internal_app = devMode?this->devApp:&applications[activeApplication];
+        current_internal_app = devMode ? this->devApp : &applications[activeApplication];
         if (current_internal_app->is_wrench)
         {
             Serial.println(F("WRENCH ACTIVE"));
@@ -276,7 +275,7 @@ public:
             }
 
             wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
-            wr_setAllocatedMemoryGCHint(w,1000);
+            wr_setAllocatedMemoryGCHint(w, 1000);
 
             //print wr_getLastError(w);
             Serial.println(wr_getLastError(w));
@@ -371,7 +370,7 @@ private:
         WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
 
-        MDNS.begin(F("matrix"));
+        // MDNS.begin(F("matrix"));
 
         webServer = new AsyncWebServer(80);
         dnsServer = new DNSServer();
@@ -401,13 +400,13 @@ private:
         {
             if (success)
             {
-                Serial.println("OTA update finished!");
+                Serial.println(F("OTA update finished!"));
                 this->ota_error = false;
                 this->ota_progress = 1;
             }
             else
             {
-                Serial.println("OTA update failed!");
+                Serial.println(F("OTA update failed!"));
                 this->ota_update = false;
                 this->ota_error = true;
                 this->ota_progress = 0;
@@ -437,7 +436,6 @@ private:
 
         webServer->on("/api", HTTP_GET, [this](AsyncWebServerRequest* request)
         {
-
             JSONVar package;
             package["version"] = "1.1.0";
             package["freeHeap"] = EspClass::getFreeHeap();
@@ -447,21 +445,19 @@ private:
             package["mac"] = WiFi.macAddress();
             package["currentApp"] = current_internal_app->name;
             package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
-            AsyncWebServerResponse *response = request->beginResponse(200, F("application/json"), JSON.stringify(package));
+            AsyncWebServerResponse* response = request->beginResponse(200, F("application/json"),
+                                                                      JSON.stringify(package));
 
             response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
             response->addHeader(F("Access-Control-Allow-Origin"), "*");
             response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
 
             request->send(response);
-
         });
 
         webServer->on("/api", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
         {
-
-
-            AsyncWebServerResponse *response = request->beginResponse(204);
+            AsyncWebServerResponse* response = request->beginResponse(204);
             response->removeHeader("content-type");
 
             response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
@@ -471,71 +467,81 @@ private:
             response->addHeader("Access-Control-Allow-Headers", "*");
             response->addHeader("Access-Control-Allow-Credentials", "true");
             request->send(response);
-
         });
 
-        webServer->on("/pushDevCode", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
-       {
-
-
-           AsyncWebServerResponse *response = request->beginResponse(204);
+        webServer->on("/ota/upload", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse(204);
             response->removeHeader("content-type");
 
             response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
-          response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
             response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
-          response->addHeader("Access-Control-Expose-Headers", "*");
-          response->addHeader("Access-Control-Allow-Headers", "*");
-          response->addHeader("Access-Control-Allow-Credentials", "true");
-           request->send(response);
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+        });
 
-       });
+        webServer->on("/pushDevCode", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+        });
 
         //push wrench code to the device
         webServer->on("/pushDevCode", HTTP_POST, [this](AsyncWebServerRequest* request)
-        {
-            AsyncWebServerResponse *response = request->beginResponse(204, F("application/json"), F("{\"success\":true}"));
+                      {
+                          AsyncWebServerResponse* response = request->beginResponse(
+                              204, F("application/json"), F("{\"success\":true}"));
 
-            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
-           response->addHeader(F("Access-Control-Allow-Origin"), "*");
-            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
-           request->send(response);
-        },nullptr,[this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total)
-            {
+                          response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+                          response->addHeader(F("Access-Control-Allow-Origin"), "*");
+                          response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+                          request->send(response);
+                      }, nullptr, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index,
+                                         size_t total)
+                      {
+                          Serial.printf("Index: %d, Total: %d\n, on %s", index, total, request->url().c_str());
+                          if (request->url() == "/pushDevCode")
+                          {
+                              if (index == 0)
+                              {
+                                  devMode = true;
+                                  transmitting_wrench = true;
 
-                Serial.printf("Index: %d, Total: %d\n", index, total);
-                if (request->url() == "/pushDevCode")
-                {
+                                  if (wrench_code != nullptr)
+                                  {
+                                      delete[] wrench_code;
+                                  }
 
-                    if (index == 0)
-                    {
-                        devMode = true;
-                        transmitting_wrench = true;
-
-                        if (wrench_code!=nullptr)
-                        {
-                            delete[] wrench_code;
-                        }
-
-                        wrench_code = new unsigned char[total];
-                        current_internal_app = this->devApp;
-                        current_internal_app->wrench_code_size = total;
-                        Serial.println("Code upload started");
-                    }
+                                  wrench_code = new unsigned char[total];
+                                  current_internal_app = this->devApp;
+                                  current_internal_app->wrench_code_size = total;
+                                  Serial.println("Code upload started\n");
+                              }
 
 
-                    Serial.printf("Received %d bytes\n", len);
+                              Serial.printf("Received %d bytes\n", len);
 
-                    memcpy(wrench_code+index, data, len);
+                              memcpy(wrench_code + index, data, len);
 
-                    if((index+len) == total)
-                    {
-                        Serial.println("Code upload finished");
-                        switch_project(applications.size()-1);
-                        transmitting_wrench = false;
-                    }
-                }
-            });
+                              if ((index + len) == total)
+                              {
+                                  Serial.println("Code upload finished");
+                                  switch_project(applications.size() - 1);
+                                  transmitting_wrench = false;
+                              }
+                          }
+                      });
 
         // Create a route handler for each of the build artifacts
         for (int i = 0; i < static_files::num_of_files; i++)

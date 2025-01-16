@@ -183,11 +183,13 @@ namespace wrench_wrapper
         auto anim = new Splash(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt() > 0);
         ce->cm->run_animation(anim, argv[4].asInt(), argv[5].asInt());
         wr_makeInt(&retVal, 1);
+
     }
 
     inline void wrench_random(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
         if (argn != 2) return;
+
         wr_makeInt(&retVal, random(argv[0].asInt(), argv[1].asInt()));
     }
 
