@@ -16,13 +16,15 @@ const static unsigned char prg_snake[] PROGMEM = {0x06, 0x06, 0x01, 0x00, 0x00, 
 
 void setup()
 {
+  sm->register_application(CircleAnimation::create, F("Circle Animation"), F("Tim"));
 
-  sm->register_application(ChessAnimation::create, F("Chess Animation"), F("Tim"));
   sm->register_application(HelloRobo::create, F("HelloRobo"), F("Tim"));
   sm->register_wrench(prg_super_racer, 838, F("SuperRacer"), F("Tim"));
   sm->register_wrench(prg_snake, 879, F("Snake"), F("Tim"));
   sm->register_application(Rainbow::create, F("Rainbow"), F("Tim"));
-  sm->register_application(CircleAnimation::create, F("Circle Animation"), F("Tim"));
+
+  sm->register_application(ChessAnimation::create, F("Chess Animation"), F("Tim"));
+
   sm->register_application(Pumpkin::create, F("Pumpkin"), F("Tim"));
   sm->register_application(Totem::create, F("Totem"), F("Insert name here"));
   sm->register_application(PixelRunner::create, F("PixelRunner"), F("Pixel Runners"));
@@ -32,7 +34,7 @@ void setup()
 
   sm->init();
 
-  sm->switch_project(5);
+  sm->switch_project(0);
   Serial.println(ESP.getResetInfo());
 }
 

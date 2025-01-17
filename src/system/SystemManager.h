@@ -74,9 +74,17 @@ public:
         };
 
         mm->set_tps(TPS);
-        current_application = applications[activeApplication].createFunction(); //TODO make sure to respect wrench code
+
         current_internal_app = &applications[activeApplication];
-        current_application->init(mm, cm);
+        if(current_internal_app->is_wrench)
+        {
+            initWrench();
+        }else
+        {
+            current_application = applications[activeApplication].createFunction(); //TODO make sure to respect wrench code
+            current_application->init(mm, cm);
+        }
+
 
         for (int i = 0; i < applications.size(); i++)
         {
@@ -254,39 +262,7 @@ public:
         current_internal_app = devMode ? this->devApp : &applications[activeApplication];
         if (current_internal_app->is_wrench)
         {
-            Serial.println(F("WRENCH ACTIVE"));
-            w = wr_newState(); // create the state
-            wrench_wrapper::register_wrench_functions(w, &ce);
-            wr_loadMathLib(w);
-            wr_loadStringLib(w);
-            wr_loadContainerLib(w);
-
-
-            Serial.println(F("try to execute"));
-
-            //output current_internal_app->wrench_code in hex to the console
-            //   for (int i = 0; i < 83; i++)
-            //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
-
-            if (!devMode)
-            {
-                this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
-                memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
-            }
-
-            wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
-            wr_setAllocatedMemoryGCHint(w, 1000);
-
-            //print wr_getLastError(w);
-            Serial.println(wr_getLastError(w));
-            // clean up
-            Serial.println(F("try to execute function init"));
-
-            WRValue* result = wr_callFunction(wc, "init");
-            if (!result)
-            {
-                Serial.println(F("Error calling function"));
-            }
+            initWrench();
         }
         else
         {
@@ -295,6 +271,43 @@ public:
         }
         Serial.println(F("Switched to ") + applications[activeApplication].name);
         send_ws_update();
+    }
+
+    void initWrench()
+    {
+        Serial.println(F("WRENCH ACTIVE"));
+        w = wr_newState(); // create the state
+        wrench_wrapper::register_wrench_functions(w, &ce);
+        wr_loadMathLib(w);
+        wr_loadStringLib(w);
+        wr_loadContainerLib(w);
+
+
+        Serial.println(F("try to execute"));
+
+        //output current_internal_app->wrench_code in hex to the console
+        //   for (int i = 0; i < 83; i++)
+        //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
+
+        if (!devMode)
+        {
+            this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
+            memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
+        }
+
+        wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+        wr_setAllocatedMemoryGCHint(w, 1000);
+
+        //print wr_getLastError(w);
+        Serial.println(wr_getLastError(w));
+        // clean up
+        Serial.println(F("try to execute function init"));
+
+        WRValue* result = wr_callFunction(wc, "init");
+        if (!result)
+        {
+            Serial.println(F("Error calling function"));
+        }
     }
 
     void handleWebsocketEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg,
@@ -437,7 +450,7 @@ private:
         webServer->on("/api", HTTP_GET, [this](AsyncWebServerRequest* request)
         {
             JSONVar package;
-            package["version"] = "1.1.0";
+            package["version"] = "1.1.1";
             package["freeHeap"] = EspClass::getFreeHeap();
             package["bootCode"] = boot_code;
             package["ssid"] = WiFi.SSID();
@@ -470,6 +483,21 @@ private:
         });
 
         webServer->on("/ota/upload", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+        });
+
+
+        webServer->on("/ota/start", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
         {
             AsyncWebServerResponse* response = request->beginResponse(204);
             response->removeHeader("content-type");
