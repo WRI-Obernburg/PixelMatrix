@@ -137,7 +137,7 @@ public:
                 }
             }
             system_draw();
-            ledstrip->show(pixels, 2.0f);
+            ledstrip->show(pixels, 3.0f);
         }
         if (ota_update)
             return;
@@ -661,6 +661,7 @@ private:
             is_code_hidden = false;
             hide_connect_code_timer = millis();
         }
+
     }
 
     static boot_code_result get_boot_code_emoji(uint8_t boot_code)
