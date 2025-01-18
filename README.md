@@ -131,3 +131,7 @@ Download firmware here: [firmware.bin](https://github.com/WRI-Obernburg/PixelMat
 2. **Navigate to the Update Page**: Open a web browser and navigate to `http://matrix.local/update`.
 3. **Upload Firmware**: Follow the on-screen instructions to upload your new firmware.
 
+
+## Contact
+info@wri-obernburg
+
