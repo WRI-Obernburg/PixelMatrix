@@ -17,6 +17,7 @@
 #include "wrench/wrench.h"
 #include <ESPAsyncWebServer.h>
 #include <animations/Splash.h>
+#include <EEPROM.h>
 
 #define NUMPIXELS 144
 #define PIN D4
@@ -47,6 +48,7 @@ class SystemManager
 public:
     void init()
     {
+
         Serial.begin(9600);
         // init system
         pixels = new Pixel_t[144];
@@ -75,6 +77,42 @@ public:
 
         mm->set_tps(TPS);
 
+        EEPROM.begin(2);
+        if(EEPROM.read(0) == EEPROM.read(1))
+        {
+            Serial.println("CHECK");
+            Serial.printf("IS %d \n",EEPROM.read(1));
+
+            if (EEPROM.read(0) >= applications.size())
+            {
+                EEPROM.write(0,0);
+                EEPROM.write(1,0);
+                EEPROM.commit();
+            }else
+            {
+                activeApplication = EEPROM.read(0);
+                Serial.printf("USED %d \n",activeApplication);
+            }
+
+            if (EEPROM.read(0) == 255)
+            {
+                Serial.println("RESET NEW");
+                EEPROM.write(0,0);
+                EEPROM.write(1,0);
+            }
+        }else
+        {
+
+            Serial.println("RESET");
+            Serial.printf("IS 0%d \n",EEPROM.read(0));
+            Serial.printf("IS 1%d \n",EEPROM.read(1));
+
+
+            EEPROM.write(0,0);
+            EEPROM.write(1,0);
+            EEPROM.commit();
+        }
+
         current_internal_app = &applications[activeApplication];
         if(current_internal_app->is_wrench)
         {
@@ -94,6 +132,9 @@ public:
         // generate boot code between 0 255
         randomSeed(EspClass::getCycleCount());
         boot_code = random(0, 255);
+
+
+
         start_server();
     }
 
@@ -456,6 +497,8 @@ private:
             package["ssid"] = WiFi.SSID();
             package["ip"] = WiFi.localIP().toString();
             package["mac"] = WiFi.macAddress();
+            package["apps"] = this->json_apps;
+            package["startupID"] = EEPROM.read(0);
             package["currentApp"] = current_internal_app->name;
             package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
             AsyncWebServerResponse* response = request->beginResponse(200, F("application/json"),
@@ -469,6 +512,38 @@ private:
         });
 
         webServer->on("/api", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
+        {
+            AsyncWebServerResponse* response = request->beginResponse(204);
+            response->removeHeader("content-type");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+            response->addHeader("Access-Control-Expose-Headers", "*");
+            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Credentials", "true");
+            request->send(response);
+        });
+
+        webServer->on("/setStartupApp", HTTP_GET, [this](AsyncWebServerRequest* request)
+        {
+            JSONVar package;
+            uint8_t id = atoi(request->getParam("id")->value().c_str());
+            Serial.printf("Switched to startup: %d \n",id);
+            EEPROM.write(0,id);
+            EEPROM.write(1,id);
+            EEPROM.commit();
+            AsyncWebServerResponse* response = request->beginResponse(200, F("application/json"),
+                                                                      "{\"ok\":true}");
+
+            response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
+            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
+
+            request->send(response);
+        });
+
+        webServer->on("/setStartupApp", HTTP_OPTIONS, [this](AsyncWebServerRequest* request)
         {
             AsyncWebServerResponse* response = request->beginResponse(204);
             response->removeHeader("content-type");
