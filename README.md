@@ -1,19 +1,8 @@
 # PixelMatrix
-***
-## 📅 Programmierkurs Januar 2025 📅
 
-Im Januar wird es wieder einen Programmierkurs im WRI Obernburg geben. Teilnehmen können alle, die am Wochenende zuvor eine LED Matrix gebaut haben, oder bereits eine besitzen.
-Bei Interesse gerne per Email an info@wri-obernburg.de wenden.
-
-### Termin:
-
-- 17.01.2025 14:00 Uhr - 18:00 Uhr: Brainstorming & Gruppenfindung
-- 18.01.2025 10:00 Uhr - 15:30 Uhr: Programmierung mit anschließendem Showcase
-
-***
 ![1730395261623 2040x1536](https://github.com/user-attachments/assets/baf4c97d-f4ce-478e-8573-d94cbe39a0a4)
 
-
+ [Matrix IDE](https://matrix.tim-arnold.de)
 
 
 ## Project Overview
@@ -29,92 +18,15 @@ PixelMatrix is a project that uses an LED matrix to display various animations a
 ## Creating and Registering an Application
 
 ### Steps to Create an Application
-1. **Create a Class**: Define a new class that inherits from `Application`.
-2. **Implement Required Methods**: Implement the following virtual methods:
-   - `init(MatrixManager *mm, ControlManager *cm)`
-   - `draw(MatrixManager *mm, ControlManager *cm)`
-   - `game_loop(MatrixManager *mm, ControlManager *cm)`
-   - `clean_up(MatrixManager *mm)`
-   - `on_event(Event e, MatrixManager *mm, ControlManager *cm)`
+1. **Create a new Project**: Create a new Project at https://matrix.tim-arnold.de
+2. **Select the new template**
 
-#### Example:
-```c++
-#include "system/Application.h"
 
-class MyApp : public Application {
-public:
-    void init(MatrixManager *mm, ControlManager *cm) override {
-        // Initialize application
-    }
+### Connect to the led matrix
+After a wifi connection as described in **Using the hotspot** is established, you can reload the connection in the Matrix Connection box.
 
-    void draw(MatrixManager *mm, ControlManager *cm) override {
-        // Draw application frame
-        // do not allocate new memory here
-        // runs at ~30 fps
-    }
-
-    void game_loop(MatrixManager *mm, ControlManager *cm) override {
-        // Update application logic
-        // runs at the specified frequency in MatrixManager->set_tps (Ticks per Second)
-    }
-
-    void clean_up(MatrixManager *mm) override {
-        // Clean up resources
-    }
-
-    void on_event(Event e, MatrixManager *mm, ControlManager *cm) override {
-        // Handle events
-    }
-
-    static Application* create() {
-        return new MyApp();
-    }
-};
-```
-
-### Registering the Application
-In the `setup()` function of `main.cpp`, register your application with the `SystemManager`:
-```c++
-void setup() {
-    sm.register_application(MyApp::create, "MyApp", "AuthorName");
-}
-```
-
-## Using MatrixManager and ControlManager
-
-### MatrixManager
-The `MatrixManager` controls the LED matrix, providing methods to set pixels and draw shapes.
-
-#### Example Usage:
-```c++
-// Set a pixel at (x, y) to a specific color
-mm->set(x, y, color);
-
-// Turn off a specific pixel
-mm->off(x, y);
-
-// Draw a circle
-mm->circle(x, y, radius, color, filled, thickness);
-
-// find more methods in the doxygen documentation
-```
-
-### ControlManager
-The `ControlManager` manages the controls and status of your application. It also runs animations.
-
-#### Example Usage:
-```c++
-// Set the status displayed on the webpage
-cm->set_status("Running");
-
-// Get the current controls displayed to the user
-uint8_t controls = cm->get_controls();
-
-// Run an animation
-cm->run_animation(new MyAnimation(), 1000);
-
-// find more methods in the doxygen documentation
-```
+## Using Matrix functions
+You can check the cheatsheet in the help section or start with an example to see all commands and functions available.
 
 ## Using OTA (Over-the-Air) Updates
 
