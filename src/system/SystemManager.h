@@ -529,10 +529,16 @@ private:
         {
             JSONVar package;
             uint8_t id = atoi(request->getParam("id")->value().c_str());
-            Serial.printf("Switched to startup: %d \n",id);
-            EEPROM.write(0,id);
-            EEPROM.write(1,id);
-            EEPROM.commit();
+            if (id < applications.size())
+            {
+                Serial.printf("Switched to startup: %d \n",id);
+                EEPROM.write(0,id);
+                EEPROM.write(1,id);
+                EEPROM.commit();
+                this->switch_project(id);
+            }
+
+
             AsyncWebServerResponse* response = request->beginResponse(200, F("application/json"),
                                                                       "{\"ok\":true}");
 
