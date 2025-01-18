@@ -15,9 +15,13 @@ PixelMatrix is a project that uses an LED matrix to display various animations a
 2. **Connect to the Hotspot**: On your Wi-Fi-enabled device, search for and connect to the Wi-Fi hotspot named `PixelMatrix` followed by the PixelCode displayed on the bottom right.
 3. **Start Playing**: After the connection is established a browser window with the controls should pop up. If not navigate to `matrix.local` or `matrix.de`
 
-## Creating and Registering an Application
+# Creating and Registering an Application
 
-### Steps to Create an Application
+You have two options to create an application for the led matrix.
+- 1 (Prefered) You use the [Editor](https://matrix.tim-arnold.de) and use a customized scripting language similar to javascript to write a program for the led matrix
+- 2 You hard code the application into the system application (cons: Local setup needed, long compile times, harder to learn)
+
+## Steps to Create an Application (Web Editor 1st way)
 1. **Create a new Project**: Create a new Project at https://matrix.tim-arnold.de
 2. **Select the new template**
 
@@ -25,8 +29,98 @@ PixelMatrix is a project that uses an LED matrix to display various animations a
 ### Connect to the led matrix
 After a wifi connection as described in **Using the hotspot** is established, you can reload the connection in the Matrix Connection box.
 
-## Using Matrix functions
+### Using Matrix functions
 You can check the cheatsheet in the help section or start with an example to see all commands and functions available.
+
+***
+
+## Steps to Create an Application (Hard coded 2nd way)
+1. **Create a Class**: Define a new class that inherits from `Application`.
+2. **Implement Required Methods**: Implement the following virtual methods:
+   - `init(MatrixManager *mm, ControlManager *cm)`
+   - `draw(MatrixManager *mm, ControlManager *cm)`
+   - `game_loop(MatrixManager *mm, ControlManager *cm)`
+   - `clean_up(MatrixManager *mm)`
+   - `on_event(Event e, MatrixManager *mm, ControlManager *cm)`
+
+### Example:
+```c++
+#include "system/Application.h"
+
+class MyApp : public Application {
+public:
+    void init(MatrixManager *mm, ControlManager *cm) override {
+        // Initialize application
+    }
+
+    void draw(MatrixManager *mm, ControlManager *cm) override {
+        // Draw application frame
+        // do not allocate new memory here
+        // runs at ~30 fps
+    }
+
+    void game_loop(MatrixManager *mm, ControlManager *cm) override {
+        // Update application logic
+        // runs at the specified frequency in MatrixManager->set_tps (Ticks per Second)
+    }
+
+    void clean_up(MatrixManager *mm) override {
+        // Clean up resources
+    }
+
+    void on_event(Event e, MatrixManager *mm, ControlManager *cm) override {
+        // Handle events
+    }
+
+    static Application* create() {
+        return new MyApp();
+    }
+};
+```
+
+### Registering the Application
+In the `setup()` function of `main.cpp`, register your application with the `SystemManager`:
+```c++
+void setup() {
+    sm.register_application(MyApp::create, "MyApp", "AuthorName");
+}
+```
+
+## Using MatrixManager and ControlManager
+
+### MatrixManager
+The `MatrixManager` controls the LED matrix, providing methods to set pixels and draw shapes.
+
+#### Example Usage:
+```c++
+// Set a pixel at (x, y) to a specific color
+mm->set(x, y, color);
+
+// Turn off a specific pixel
+mm->off(x, y);
+
+// Draw a circle
+mm->circle(x, y, radius, color, filled, thickness);
+
+// find more methods in the doxygen documentation
+```
+
+### ControlManager
+The `ControlManager` manages the controls and status of your application. It also runs animations.
+
+#### Example Usage:
+```c++
+// Set the status displayed on the webpage
+cm->set_status("Running");
+
+// Get the current controls displayed to the user
+uint8_t controls = cm->get_controls();
+
+// Run an animation
+cm->run_animation(new MyAnimation(), 1000);
+
+// find more methods in the doxygen documentation
+```
 
 ## Using OTA (Over-the-Air) Updates
 
