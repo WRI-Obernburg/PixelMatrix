@@ -55,6 +55,12 @@ public:
             return;
         }
         int pixel = this->calculate_strip_pixel(x, y);
+        if (pixel < 0 || pixel >= 144) {
+            if (!ignoreOutOfRange) {
+                Serial.println(F("Invalid pixel index\n"));
+            }
+            return;
+        }
         pixels[pixel].R = r;
         pixels[pixel].G = g;
         pixels[pixel].B = b;
@@ -81,7 +87,7 @@ public:
      */
     void set_string(int n, int r, int g, int b)
     {
-        if (n > 143)
+        if (n < 0 || n > 143)
         {
             Serial.println(F("Out of range\n"));
             return;
@@ -447,6 +453,10 @@ public:
      */
     void circle(int x, int y, int radius, uint32_t color, bool filled = true, int u = 2)
     {
+        if (u <= 0) {
+            Serial.println(F("Invalid step size for circle\n"));
+            return;
+        }
         for (int i = 0; i < 360; i += u)
         {
             if (i == 0)

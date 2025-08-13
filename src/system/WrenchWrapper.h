@@ -108,7 +108,16 @@ namespace wrench_wrapper
     {
         if (argn != 3) return;
         auto ce = static_cast<ControlElements*>(usr);
-        ce->mm->set(argv[0].asInt(), argv[1].asInt(), argv[2].asInt());
+        if (ce == nullptr || ce->mm == nullptr) return;
+        
+        int x = argv[0].asInt();
+        int y = argv[1].asInt();
+        int color = argv[2].asInt();
+        
+        // Bounds checking to prevent crashes
+        if (x >= 0 && x <= 11 && y >= 0 && y <= 11) {
+            ce->mm->set(x, y, color);
+        }
         wr_makeInt(&retVal, 1);
     }
 
@@ -116,7 +125,15 @@ namespace wrench_wrapper
     {
         if (argn != 2) return;
         auto* ce = static_cast<ControlElements*>(usr);
-        ce->mm->off(argv[0].asInt(), argv[1].asInt());
+        if (ce == nullptr || ce->mm == nullptr) return;
+        
+        int x = argv[0].asInt();
+        int y = argv[1].asInt();
+        
+        // Bounds checking to prevent crashes
+        if (x >= 0 && x <= 11 && y >= 0 && y <= 11) {
+            ce->mm->off(x, y);
+        }
         wr_makeInt(&retVal, 1);
     }
 
@@ -163,7 +180,17 @@ namespace wrench_wrapper
     {
         if (argn != 4) return;
         auto ce = static_cast<ControlElements*>(usr);
-        ce->mm->circle(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
+        if (ce == nullptr || ce->mm == nullptr) return;
+        
+        int x = argv[0].asInt();
+        int y = argv[1].asInt();
+        int radius = argv[2].asInt();
+        int color = argv[3].asInt();
+        
+        // Validate radius to prevent issues
+        if (radius >= 0 && radius < 50) {
+            ce->mm->circle(x, y, radius, color);
+        }
         wr_makeInt(&retVal, 1);
     }
 
