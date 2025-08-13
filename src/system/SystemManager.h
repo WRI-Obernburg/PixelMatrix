@@ -154,11 +154,11 @@ public:
             {
                 if (current_internal_app->is_wrench)
                 {
-                    if (!transmitting_wrench)
+                    if (!transmitting_wrench && wc != nullptr)
                     {
                         wr_callFunction(wc, "draw");
                     }
-                    if (wr_getLastError(w) != 0)
+                    if (w != nullptr && wr_getLastError(w) != 0)
                     {
                         Serial.print(F("WREN Error when drawing: "));
                         Serial.println(wr_getLastError(w));
@@ -196,12 +196,12 @@ public:
             game_loop_timer = millis();
             if (current_internal_app->is_wrench)
             {
-                if (!transmitting_wrench)
+                if (!transmitting_wrench && wc != nullptr)
                 {
                     wr_callFunction(wc, "game_loop");
                 }
 
-                if (wr_getLastError(w) != 0)
+                if (w != nullptr && wr_getLastError(w) != 0)
                 {
                     Serial.print(F("WREN Error when game_loop: "));
                     Serial.println(wr_getLastError(w));
@@ -283,8 +283,9 @@ public:
         if (current_internal_app->is_wrench)
         {
             Serial.println(F("WRENCH WAS ACTIVE"));
-            if (!devMode)
+            if (!devMode && this->wrench_code != nullptr)
                 delete[] this->wrench_code;
+            this->wrench_code = nullptr;
         }
         else
         {
@@ -318,6 +319,11 @@ public:
     {
         Serial.println(F("WRENCH ACTIVE"));
         w = wr_newState(); // create the state
+        if (w == nullptr) {
+            Serial.println(F("Failed to create Wrench state"));
+            return;
+        }
+        
         wrench_wrapper::register_wrench_functions(w, &ce);
         wr_loadMathLib(w);
         wr_loadStringLib(w);
@@ -332,11 +338,21 @@ public:
 
         if (!devMode)
         {
+            // Clean up existing wrench_code to prevent memory leak
+            if (this->wrench_code != nullptr) {
+                delete[] this->wrench_code;
+                this->wrench_code = nullptr;
+            }
             this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
             memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
         }
 
         wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
+        if (wc == nullptr) {
+            Serial.println(F("Failed to run Wrench code"));
+            return;
+        }
+        
         wr_setAllocatedMemoryGCHint(w, 1000);
 
         //print wr_getLastError(w);
@@ -811,9 +827,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::UP);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::UP);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -825,9 +843,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::DOWN);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::DOWN);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -839,9 +859,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::LEFT);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::LEFT);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -853,9 +875,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::RIGHT);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::RIGHT);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -867,9 +891,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::MIDDLE);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::MIDDLE);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -881,9 +907,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::A);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::A);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -895,9 +923,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::B);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::B);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {
@@ -909,9 +939,11 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::C);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            if (wc != nullptr) {
+                                WRValue val;
+                                wr_makeInt(&val, Event::C);
+                                wr_callFunction(wc, "on_event", &val, 1);
+                            }
                         }
                         else
                         {

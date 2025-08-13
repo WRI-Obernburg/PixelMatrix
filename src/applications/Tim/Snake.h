@@ -53,14 +53,16 @@ public:
         }
 
         // iterate over the queue and check if the most recent element collides with an older one
-        for (int i = 0; i < snake_pieces.size() - 1; i++)
-        {
-            if (snake_pieces.at(i).x == snake_pieces.back().x && snake_pieces.at(i).y == snake_pieces.back().y)
+        if (snake_pieces.size() > 1) {
+            for (int i = 0; i < (int)snake_pieces.size() - 1; i++)
             {
-                loose_state = true;
-                cm->set_controls(button_a);
-                cm->run_animation(new Splash(snake_pieces.back().x, snake_pieces.back().y, MatrixManager::Color(255, 0, 0)), 1000, 1000);
-                return;
+                if (snake_pieces.at(i).x == snake_pieces.back().x && snake_pieces.at(i).y == snake_pieces.back().y)
+                {
+                    loose_state = true;
+                    cm->set_controls(button_a);
+                    cm->run_animation(new Splash(snake_pieces.back().x, snake_pieces.back().y, MatrixManager::Color(255, 0, 0)), 1000, 1000);
+                    return;
+                }
             }
         }
 
@@ -83,8 +85,8 @@ public:
 
         if (food_collision)
         {
-            food_position.x = random(0, 11);
-            food_position.y = random(0, 11);
+            food_position.x = random(0, 12);
+            food_position.y = random(0, 12);
         }
     }
 
@@ -154,8 +156,8 @@ public:
         snake_pieces.push_back({3, 5});
 
         food_position = {
-            random(0, 11),
-            random(0, 11)};
+            random(0, 12),
+            random(0, 12)};
         cm->set_controls(button_up | button_right | button_down | button_left);
         loose_state = false;
         direction = -1;
