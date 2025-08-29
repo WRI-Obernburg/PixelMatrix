@@ -32,7 +32,7 @@ SOFTWARE.
 
 #define WRENCH_VERSION_MAJOR 6
 #define WRENCH_VERSION_MINOR 0
-#define WRENCH_VERSION_BUILD 16
+#define WRENCH_VERSION_BUILD 18
 
 struct WRState;
 
@@ -55,7 +55,7 @@ WRENCH_REALLY_COMPACT reduces size further by removing the jumptable
 interpreter in favor of a giant switch(). This savings comes at the cost
 of more speed so only use it if you need to.
 */
-#define WRENCH_COMPACT           // saves a lot, costs some speed
+//#define WRENCH_COMPACT           // saves a lot, costs some speed
 //#define WRENCH_REALLY_COMPACT    // saves a little more, costs more speed
 
 
@@ -74,7 +74,7 @@ memory requirements, as some embedded systems do, you may re-define
 them here, but they MUST match the endian-ness of the target
 architecture, see vm.h for the current definitions
 */
-//#define READ_32_FROM_PC( P ) 
+//#define READ_32_FROM_PC( P )
 //#define READ_16_FROM_PC( P )
 //#define READ_8_FROM_PC( P )
 
@@ -100,7 +100,7 @@ be more than enough.
 To really reduce RAM footprint this can be lowered considerably
 depending on usage. (consumes 8 bytes per stack entry)
 */
-#define WRENCH_DEFAULT_STACK_SIZE 64
+#define WRENCH_DEFAULT_STACK_SIZE 128
 // this costs a small bit of overhead whenever the stack is used, for
 // most applications it is not necessary, but will protect against
 // things like infinite recursion
@@ -262,12 +262,12 @@ enum WRError
 	WR_ERR_USER_err_out_of_range,
 
 	WR_ERR_division_by_zero,
-	
+
 	WR_warning_enums_follow,
 
 	WR_USER = 100, // user-defined below here
 
-	
+
 	WR_ERR_LAST = 255,
 };
 
@@ -303,12 +303,12 @@ enum WrenchCompilerFlags
 {
 	WR_INCLUDE_GLOBALS   = 1<<0, // include all globals NOTE: wr_getGlobalRef(...)
 								 // will not function without this
-	
+
 	WR_EMBED_DEBUG_CODE  = 1<<1, // include per-instruction NOTE: WrenchDebugInterface
 								 // will not function without this
-	
+
 	WR_EMBED_SOURCE_CODE = 1<<2, // include a copy of the source code
-	
+
 	WR_NON_STRICT_VAR    = 1<<3, // require 'var' to declare a variable (disabled by default)
 };
 
@@ -427,7 +427,7 @@ void wr_setAllocatedMemoryGCHint( WRState* w, const uint16_t bytes );
 
 /***************************************************************/
 /***************************************************************/
-//                 Callbacks from wrench                         
+//                 Callbacks from wrench
 
 // register a function inside a state that can be called (by ALL
 // contexts)
@@ -466,7 +466,7 @@ void wr_registerFunction( WRState* w, const char* name, WR_C_CALLBACK function, 
 
 // serialize WRValues to and from binary
 // NOTE: on success, wr_serialize returns a malloc()'d buffer that must be freed!
-bool wr_serialize( char** buf, int* len, const WRValue& value ); 
+bool wr_serialize( char** buf, int* len, const WRValue& value );
 bool wr_deserialize( WRContext* context, WRValue& value, const char* buf, const int len );
 
 /***************************************************************/
@@ -520,9 +520,9 @@ void wr_loadContainerLib( WRState* w ); // array/hash/queue/stack/list
 // sketch. much thanks to Koepel for contributing
 void wr_loadAllArduinoLibs( WRState* w );
 
-void wr_loadArduinoSTDLib( WRState* w ); 
-void wr_loadArduinoIOLib( WRState* w ); 
-void wr_loadArduinoLCDLib( WRState* w ); 
+void wr_loadArduinoSTDLib( WRState* w );
+void wr_loadArduinoIOLib( WRState* w );
+void wr_loadArduinoLCDLib( WRState* w );
 
 /***************************************************************/
 /***************************************************************/
@@ -542,8 +542,14 @@ WRValue& wr_makeString( WRContext* context, WRValue* val, const char* data, cons
 
 // turning a value into a container,
 // NOTE!! Allocates a hash table which must be released with destroy!!
-void wr_makeContainer( WRValue* val, const uint16_t sizeHint =0 );
+WRValue& wr_makeContainer( WRValue* val, const uint16_t sizeHint =0 );
 void wr_destroyContainer( WRValue* val );
+
+// create an instance of the named struct (as if it were new'ed inside
+// wrench) if the name is not a valid struct in the given context the
+// return value is null.
+// This value is automatically cleaned up when the context is destroyed
+WRValue* wr_instanceStruct( WRValue* val, WRContext* context, const char* name, const WRValue* argv =0, const int argn =0 );
 
 // NOTE: value memory is managed by called and must remain valid for
 // duration of the container!!
@@ -568,7 +574,7 @@ extern int32_t wr_Seed;
 /*
 
  wrench values have a 32-bit type vector
- 
+
 type bits: XXXX  XXXX  ____  ____  ____  ____  __TT
                                         [8-bit type]
            [             32-bit xtype              ]
@@ -588,7 +594,7 @@ time-consuming if-else-tree. single bit shift + OR and we're there:
 Always results in a value from 0-15 which can index into a function
 table:
 
-    FunctionTypedef wr_func[16] = 
+    FunctionTypedef wr_func[16] =
     {
       do_I_I,  do_I_F,  do_I_R,  do_I_E,
       do_F_I,  do_F_F,  do_F_R,  do_F_E,
@@ -611,7 +617,7 @@ The "extended" types are:
                               middle 21 bits:
 
                               0x1FFFFF00
-                              
+
                               such that shifting them >>8 yields
                               the actual array size
                        This is done so the value is never garbage
@@ -633,14 +639,14 @@ The "extended" types are:
                              bits:
 
 							 0x1FFFFF00
-                             
+
 							 such that shifting them >>8 yields
                              the actual element
-                             
+
 						     This is done so the value is never garbage
 							 collected, or matched to the wrong type, but
 							 does limit the size of an array to 2megabytes
-                              
+
 0xA0xxxxxx  array/utility hash:
                         va-> holds a pointer to the actual array object (gc_object)
                         which has been allocated and is subject to
@@ -658,9 +664,9 @@ The "extended" types are:
 
 0xC0xxxxxx  struct: This value is a constructed "struct" object with a
                    hash table of values
-                   
+
                    va-> refers to the container of initialized objects
-                  
+
 
 0xE0xxxxxx  hash table: hash table of WRValues
 
@@ -694,7 +700,7 @@ enum WRExType : uint8_t
 	WR_EX_RAW_ARRAY  = 0x20,  // 0010
 
 	WR_EX_LL_POINTER = 0x40,  // 0100  [experimental]
-	
+
 	WR_EX_ITERATOR	       = 0x60,  // 0110
 	WR_EX_CONTAINER_MEMBER = 0x80,  // 1000
 	WR_EX_ARRAY            = 0xA0,  // 1010
@@ -711,7 +717,7 @@ enum WRGCObjectType
 	SV_HASH_TABLE = 0x01,
 	SV_HASH_ENTRY = 0x02,
 	SV_HASH_INTERNAL = 0x03,
-	
+
 	SV_VALUE = 0x04, // !!must ALWAYS be last two so >= works
 	SV_CHAR = 0x05,  // !!
 };
@@ -765,7 +771,7 @@ struct WRValue
 	// methods
 	int asInt() const;
 	void setInt( const int val );
-	
+
 	float asFloat() const;
 	void setFloat( const float val );
 
@@ -775,15 +781,19 @@ struct WRValue
 	bool isWrenchArray( int* len =0 ) const;
 	bool isRawArray( int* len =0 ) const;
 	bool isHashTable( int* members=0 ) const;
+	bool isStruct() const;
 
 	// if this value is an array, return 'index'-th element
 	// if create is true and this value is NOT an array, it will be converted into one
-	WRValue* indexArray( WRContext* context, const uint32_t index, const bool create );
-	
+	WRValue* indexArray( WRContext* context, const uint32_t index, const bool create ) const;
+
 	// if this value is a hash table, return [or create] the 'index' hash item
 	// if create is true and this value is NOT a hash, it will be converted into one
-	WRValue* indexHash( WRContext* context, const uint32_t hash, const bool create );
-	
+	WRValue* indexHash( WRContext* context, const uint32_t hash, const bool create ) const;
+
+	// if this value is a struct return the element, otherwise null
+	WRValue* indexStruct( const char* label ) const;
+
 	// string: must point to a buffer long enough to contain at least maxLen bytes.
 	// the "string" pointer will be passed back, if maxLen is 0 (not
 	// reccomended) the string is assumed to be unlimited size
@@ -821,7 +831,7 @@ struct WRValue
 	uint32_t getHash() const { return (type <= WR_FLOAT) ? ui : getHashEx(); } // easy cases
 	uint32_t getHashEx() const; // harder
 
-	union // first 4 bytes 
+	union // first 4 bytes
 	{
 		int32_t i;
 		uint32_t ui;
@@ -872,7 +882,7 @@ struct WRValue
 		};
 #endif
 		uintptr_t p2;
-		
+
 		union
 		{
 			intptr_t returnOffset;
@@ -892,7 +902,7 @@ public:
 	{
 	public:
 		Iterator( WRValue const& V );
-		
+
 		Iterator() : m_va(0) {}
 
 		bool operator!=( const Iterator& other )
@@ -903,7 +913,7 @@ public:
 		WRIteratorEntry const& operator* () const { return m_current; }
 
 		const Iterator operator++();
-			
+
 	private:
 
 		WRIteratorEntry m_current;
@@ -920,7 +930,7 @@ public:
 class WrenchValue
 {
 public:
-		
+
 	WrenchValue( WRContext* context, const char* label ) : m_context(context), m_value( wr_getGlobalRef(context, label) ) {}
 	WrenchValue( WRContext* context, WRValue* value ) : m_context(context), m_value(&(value->deref())) {}
 
@@ -930,7 +940,7 @@ public:
 	// that type, preserving the value as best it can
 	operator int32_t* () { return Int(); }
 	int32_t* Int();
-	
+
 	operator float* () { return (float*)Float(); }
 	float* Float();
 
@@ -1039,17 +1049,17 @@ public:
 
 	// load and prepare a program for running
 	// if byteCode/size is null then previoous code is re-loaded
-	void load( const uint8_t* byteCode =0, const int size =0 ); 
+	void load( const uint8_t* byteCode =0, const int size =0 );
 
 	bool getSourceCode( const char** data, int* len ); // get a new'ed pointer to the source code
 	uint32_t getSourceCodeHash(); // get the crc of the code that was compiled
 
-	SimpleLL<WrenchFunction>& getFunctions(); // global is function[0] 
+	SimpleLL<WrenchFunction>& getFunctions(); // global is function[0]
 
 	// 0 is global, 1,2,3... etc are frames
 	SimpleLL<WrenchCallStackEntry>* getCallstack();
 	bool getStackDump( char* out, const unsigned int maxOut );
-	
+
 	const char* getFunctionLabel( const int index );
 	const char* getValueLabel( const int index, const int depth );
 	WRValue* getValue( WRValue& value, const int index, const int depth );

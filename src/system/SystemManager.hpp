@@ -1,16 +1,17 @@
 #pragma once
 
 #define UPDATE_DEBUG 1
+#include <Arduino.h>
 #include "MatrixManager.h"
 #include "Application.h"
 #include <DNSServer.h>
-#include <ESP8266WiFi.h>
-//#include <ESP8266mDNS.h>
-#include <ESPAsyncTCP.h>
+#include <WiFi.h>
+#include <vector>
+#include <AsyncTCP.h>
 #include "static_files.h"
 #include <Arduino_JSON.h>
-#include <ElegantOTA.h>
-#include <ws2812_i2s.h>
+//#include <ElegantOTA.h>
+
 #define WRENCH_COMPACT
 #include "WrenchWrapper.h"
 
@@ -18,6 +19,8 @@
 #include <ESPAsyncWebServer.h>
 #include <animations/Splash.h>
 #include <EEPROM.h>
+
+#include "Adafruit_NeoPixel.h"
 
 #define NUMPIXELS 144
 #define PIN D4
@@ -51,18 +54,11 @@ public:
 
         Serial.begin(9600);
         // init system
-        pixels = new Pixel_t[144];
-        ledstrip = new WS2812();
-        pinMode(D8, INPUT_PULLDOWN_16);
-        pinMode(D7, OUTPUT);
-        digitalWrite(D7, HIGH);
-        delay(100);
-        const bool inverse = digitalRead(D8) == HIGH;
-        Serial.println(digitalRead((D8)));
-        ledstrip->init(144);
-        ledstrip->show(pixels, 2.0f);
 
-        mm = new MatrixManager(pixels, ledstrip, inverse);
+        pixels = new Adafruit_NeoPixel(NUMPIXELS, 3, NEO_GRB + NEO_KHZ800);
+        pixels->setBrightness(100);
+
+        mm = new MatrixManager(pixels, false);
         cm = new ControlManager([this]()
         {
             if ((millis() - this->last_ws_update) > 500)
@@ -130,7 +126,7 @@ public:
         }
 
         // generate boot code between 0 255
-        randomSeed(EspClass::getCycleCount());
+        randomSeed(cpu_ll_get_cycle_count());
         boot_code = random(0, 255);
 
 
@@ -145,7 +141,7 @@ public:
 
         yield();
 
-        ElegantOTA.loop();
+        //ElegantOTA.loop();
 
         if ((millis() - frame_timer) > (1000 / 50))
         {
@@ -186,7 +182,7 @@ public:
                 }
             }
             system_draw();
-            ledstrip->show(pixels, 3.0f);
+            pixels->show();
         }
         if (ota_update)
             return;
@@ -210,11 +206,12 @@ public:
             else
             {
                 current_application->game_loop(mm, cm);
-            }
-        }
+            }        }
 
         if ((float)(millis() - ws_timer) > 300)
         {
+            Serial.println(WiFi.status());
+
             ws_timer = millis();
             ws->cleanupClients();
             if ((millis() - last_ws_update) > 300)
@@ -222,7 +219,7 @@ public:
                 send_ws_update();
             }
 
-            Serial.println(EspClass::getFreeHeap());
+            Serial.println(ESP.getFreeHeap());
             // MDNS.update();
         }
 
@@ -310,7 +307,7 @@ public:
             current_application = applications[activeApplication].createFunction();
             current_application->init(mm, cm);
         }
-        Serial.println(F("Switched to ") + applications[activeApplication].name);
+        Serial.println(String("Switched to ") + applications[activeApplication].name);
         send_ws_update();
     }
 
@@ -399,16 +396,13 @@ private:
         IPAddress APIP(192, 168, 0, 1); // Gateway
 
         WiFi.persistent(false);
-
-
-        //  WiFi.mode(WIFI_AP);
-
-        wifi_station_set_hostname("matrix.local");
-
+        delay(250);
+        WiFi.mode(WIFI_AP);
+        delay(250);
+       // WiFiClass::setHostname("matrix.local");
         WiFi.softAPConfig(APIP, APIP, IPAddress(255, 255, 255, 0));
-        WiFi.hostname(F("matrix.local"));
-
-        WiFi.scanNetworks();
+        delay(250);
+      /*WiFi.scanNetworks();
 
         int best_channel_id = 3;
         for (int i = 0; i < 14; i++)
@@ -419,10 +413,22 @@ private:
                 break;
             }
         }
+        */
+        delay(250);
+        while(!WiFi.softAP(build_ssid()))
+        {
+            Serial.println(".");
+            delay(100);
+        }
+        WiFi.setTxPower(WIFI_POWER_8_5dBm);
+        Serial.println(WiFi.status());
 
-        WiFi.softAP(build_ssid(), "", best_channel_id, 0, 4, 100);
-        WiFi.setSleepMode(WIFI_NONE_SLEEP);
+
+
+
+       // WiFi.setSleepMode(WIFI_NONE_SLEEP);
         WiFi.printDiag(Serial);
+       // WiFi.setSleep(WIFI_PS_NONE);
 
         // MDNS.begin(F("matrix"));
 
@@ -437,8 +443,8 @@ private:
         });
         webServer->addHandler(ws);
 
-        ElegantOTA.begin(webServer);
-        ElegantOTA.onStart([this]()
+        ///ElegantOTA.begin(webServer);
+        /*ElegantOTA.onStart([this]()
         {
             Serial.println("OTA update started!");
             this->ota_update = true;
@@ -466,6 +472,7 @@ private:
                 this->ota_progress = 0;
             }
         });
+        */
 
 
         // Start webserver
@@ -474,7 +481,7 @@ private:
 
         webServer->onNotFound([](AsyncWebServerRequest* request)
         {
-            AsyncWebServerResponse* response = request->beginResponse_P(
+            AsyncWebServerResponse* response = request->beginResponse(
                 200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
             response->addHeader(F("Content-Encoding"), F("gzip"));
             request->send(response);
@@ -482,7 +489,7 @@ private:
 
         webServer->on("/", HTTP_GET, [](AsyncWebServerRequest* request)
         {
-            AsyncWebServerResponse* response = request->beginResponse_P(
+            AsyncWebServerResponse* response = request->beginResponse(
                 200, F("text/html"), static_files::f_index_html_contents, static_files::f_index_html_size);
             response->addHeader(F("Content-Encoding"), F("gzip"));
             request->send(response);
@@ -492,7 +499,7 @@ private:
         {
             JSONVar package;
             package["version"] = "1.1.1";
-            package["freeHeap"] = EspClass::getFreeHeap();
+            package["freeHeap"] = ESP.getFreeHeap();
             package["bootCode"] = boot_code;
             package["ssid"] = WiFi.SSID();
             package["ip"] = WiFi.localIP().toString();
@@ -500,7 +507,7 @@ private:
             package["apps"] = this->json_apps;
             package["startupID"] = EEPROM.read(0);
             package["currentApp"] = current_internal_app->name;
-            package["currentBoardFrq"] = EspClass::getCpuFreqMHz();
+            package["currentBoardFrq"] = ESP.getCpuFreqMHz();
             AsyncWebServerResponse* response = request->beginResponse(200, F("application/json"),
                                                                       JSON.stringify(package));
 
@@ -598,10 +605,12 @@ private:
             response->removeHeader("content-type");
 
             response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
-            response->addHeader(F("Access-Control-Allow-Origin"), "*");
+            response->addHeader("Access-Control-Allow-Origin", "*");
             response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
             response->addHeader("Access-Control-Expose-Headers", "*");
-            response->addHeader("Access-Control-Allow-Headers", "*");
+            response->addHeader("Access-Control-Allow-Origin", "*");
+            response->addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+            response->addHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
             response->addHeader("Access-Control-Allow-Credentials", "true");
             request->send(response);
         });
@@ -613,7 +622,9 @@ private:
                               204, F("application/json"), F("{\"success\":true}"));
 
                           response->addHeader(F("Access-Control-Allow-Private-Network"), "true");
-                          response->addHeader(F("Access-Control-Allow-Origin"), "*");
+                          response->addHeader("Access-Control-Allow-Origin", "*");
+                          response->addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+                          response->addHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
                           response->addHeader(F("Private-Network-Access-Name"), "LED Matrix");
                           request->send(response);
                       }, nullptr, [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index,
@@ -657,7 +668,7 @@ private:
         {
             webServer->on(static_files::files[i].path, HTTP_GET, [i](AsyncWebServerRequest* request)
             {
-                AsyncWebServerResponse* response = request->beginResponse_P(
+                AsyncWebServerResponse* response = request->beginResponse(
                     200, static_files::files[i].type, static_files::files[i].contents, static_files::files[i].size);
                 response->addHeader(F("Content-Encoding"), F("gzip"));
                 request->send(response);
@@ -675,7 +686,7 @@ private:
         ssid += get_boot_code_emoji((boot_code >> 2) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 4) & 0x03).emoji;
         ssid += get_boot_code_emoji((boot_code >> 6) & 0x03).emoji;
-        ssid += F(" ID: #") + String(random(100, 999));
+        ssid += String(" ID: #") + String(random(100, 999));
         return ssid;
     }
 
@@ -867,9 +878,9 @@ private:
                     {
                         if (this->current_internal_app->is_wrench)
                         {
-                            WRValue val;
-                            wr_makeInt(&val, Event::MIDDLE);
-                            wr_callFunction(wc, "on_event", &val, 1);
+                            WRValue *val = new WRValue;
+                            wr_makeInt(val, Event::MIDDLE);
+                            wr_callFunction(wc, "on_event", val, 1);
                         }
                         else
                         {
@@ -928,7 +939,7 @@ private:
     Application* current_application = nullptr;
     InternalApp* current_internal_app = nullptr;
     InternalApp* devApp = new InternalApp{
-        nullptr, "Dev", true, nullptr, 0
+        nullptr, String("Dev"), true, nullptr, 0
     };
     ControlManager* cm = nullptr;
     ControlElements ce = {};
@@ -948,9 +959,8 @@ private:
     uint8_t* wrench_code = nullptr;
 
     // pixel buffer
-    Pixel_t* pixels = nullptr;
     int brightness = 100;
-    WS2812* ledstrip = nullptr;
+    Adafruit_NeoPixel * pixels;
     WRState* w = nullptr;
     WRContext* wc = nullptr;
     int outLen = 0;

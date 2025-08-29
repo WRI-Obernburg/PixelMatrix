@@ -5,6 +5,7 @@
 #ifndef WRENCHWRAPPER_H
 #define WRENCHWRAPPER_H
 #include <animations/Splash.h>
+#include <Arduino.h>
 
 #include "wrench/wrench.h"
 #include "ControlManager.h"
@@ -18,6 +19,7 @@ namespace wrench_wrapper
 {
     inline void print(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING print");
         char buf[128];
         for( int i=0; i<argn; ++i )
         {
@@ -27,6 +29,7 @@ namespace wrench_wrapper
 
     inline void set_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING set_status");
         if (argn == 0) return;
         auto* ce = static_cast<ControlElements*>(usr);
 
@@ -41,18 +44,21 @@ namespace wrench_wrapper
 
     inline void get_status(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING get_status");
         auto* ce = static_cast<ControlElements*>(usr);
         wr_makeString(c, &retVal, ce->cm->get_status().c_str(), strlen(ce->cm->get_status().c_str()));
     }
 
     inline void get_current_tps(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING get_current_tps");
         auto* ce = static_cast<ControlElements*>(usr);
         wr_makeFloat(&retVal, ce->mm->get_current_tps());
     }
 
     inline void set_tps(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING set_tps");
         if (argn != 1) return;
         auto* ce = static_cast<ControlElements*>(usr);
         ce->mm->set_tps(argv[0].asFloat());
@@ -61,12 +67,14 @@ namespace wrench_wrapper
 
     inline void get_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING get_controls");
         auto* ce = static_cast<ControlElements*>(usr);
         wr_makeInt(&retVal, ce->cm->get_controls());
     }
 
     inline void set_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING set_controls");
         if (argn != 1) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->cm->set_controls(argv[0].asInt());
@@ -75,6 +83,7 @@ namespace wrench_wrapper
 
     inline void reset_controls(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING reset_controls");
         auto ce = static_cast<ControlElements*>(usr);
         ce->cm->reset();
         wr_makeInt(&retVal, 1);
@@ -82,6 +91,7 @@ namespace wrench_wrapper
 
     inline void is_animation_running(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING is_animation_running");
         auto ce = static_cast<ControlElements*>(usr);
         wr_makeInt(&retVal, ce->cm->is_animation_running());
 
@@ -99,6 +109,7 @@ namespace wrench_wrapper
 
     inline void stop_animation(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING stop_animation");
         auto ce = static_cast<ControlElements*>(usr);
         ce->cm->stop_animation();
         wr_makeInt(&retVal, 1);
@@ -106,6 +117,7 @@ namespace wrench_wrapper
 
     inline void set_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING set_pixel");
         if (argn != 3) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->set(argv[0].asInt(), argv[1].asInt(), argv[2].asInt());
@@ -114,6 +126,7 @@ namespace wrench_wrapper
 
     inline void off_pixel(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING off_pixel");
         if (argn != 2) return;
         auto* ce = static_cast<ControlElements*>(usr);
         ce->mm->off(argv[0].asInt(), argv[1].asInt());
@@ -122,6 +135,7 @@ namespace wrench_wrapper
 
     inline void fill_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING fill_matrix");
         if (argn != 1) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->fill(argv[0].asInt());
@@ -130,6 +144,7 @@ namespace wrench_wrapper
 
     inline void clear_matrix(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING clear_matrix");
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->clear();
         wr_makeInt(&retVal, 1);
@@ -137,6 +152,7 @@ namespace wrench_wrapper
 
     inline void draw_line(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING draw_line");
         if (argn != 5) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->line(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt());
@@ -145,6 +161,7 @@ namespace wrench_wrapper
 
     inline void draw_rect_filled(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING draw_rect_filled");
         if (argn != 5) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt(),true); //make fillable controlable
@@ -153,6 +170,7 @@ namespace wrench_wrapper
 
     inline void draw_rect(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING draw_rect");
         if (argn != 5) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->rect(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt(), argv[4].asInt()); //make fillable controlable
@@ -161,6 +179,7 @@ namespace wrench_wrapper
 
     inline void draw_circle(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING draw_circle");
         if (argn != 4) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->circle(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
@@ -169,6 +188,7 @@ namespace wrench_wrapper
 
     inline void draw_number(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING draw_number");
         if (argn != 4) return;
         auto ce = static_cast<ControlElements*>(usr);
         ce->mm->number(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt());
@@ -178,6 +198,7 @@ namespace wrench_wrapper
     //animations
     inline void run_animation_splash(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING run_animation_splash");
         if (argn != 6) return;
         auto ce = static_cast<ControlElements*>(usr);
         auto anim = new Splash(argv[0].asInt(), argv[1].asInt(), argv[2].asInt(), argv[3].asInt() > 0);
@@ -188,6 +209,7 @@ namespace wrench_wrapper
 
     inline void wrench_random(WRContext* c, const WRValue* argv, const int argn, WRValue& retVal, void* usr)
     {
+        Serial.println("CALLING wrench_random");
         if (argn != 2) return;
 
         wr_makeInt(&retVal, random(argv[0].asInt(), argv[1].asInt()));
@@ -195,6 +217,7 @@ namespace wrench_wrapper
 
     static void register_wrench_functions(WRState* w, ControlElements* ce)
     {
+        Serial.println("CALLING register_wrench_functions");
         wr_registerFunction(w, "print", wrench_wrapper::print, &ce); // bind a function
 
         wr_registerFunction(w, "set_status", wrench_wrapper::set_status, ce);

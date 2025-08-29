@@ -1,15 +1,15 @@
 #pragma once
-#include <ws2812_i2s.h>
+
+#include "Adafruit_NeoPixel.h"
 /**
  * Controls the matrix and provides methods to set pixels.
  */
 class MatrixManager
 {
 public:
-    MatrixManager(Pixel_t* pixels, WS2812* ledstrip, bool inverse = false)
+    MatrixManager(Adafruit_NeoPixel * pixels, bool inverse = false)
     {
         this->pixels = pixels;
-        this->ledstrip = ledstrip;
         this->inverse = inverse;
     }
 
@@ -55,9 +55,8 @@ public:
             return;
         }
         int pixel = this->calculate_strip_pixel(x, y);
-        pixels[pixel].R = r;
-        pixels[pixel].G = g;
-        pixels[pixel].B = b;
+        pixels->setPixelColor(pixel, Adafruit_NeoPixel::Color(r, g, b));
+
     }
 
     /**
@@ -87,9 +86,7 @@ public:
             return;
         }
         int pixel = n;
-        pixels[pixel].R = r;
-        pixels[pixel].G = g;
-        pixels[pixel].B = b;
+        pixels->setPixelColor(pixel, Adafruit_NeoPixel::Color(r, g, b));
     }
 
     /**
@@ -112,9 +109,7 @@ public:
     {
         for (int i = 0; i < 144; i++)
         {
-            pixels[i].R = r;
-            pixels[i].G = g;
-            pixels[i].B = b;
+            pixels->setPixelColor(i, Adafruit_NeoPixel::Color(r, g, b));
         }
     }
 
@@ -126,9 +121,7 @@ public:
     {
         for (int i = 0; i < 144; i++)
         {
-            pixels[i].R = 0;
-            pixels[i].G = 0;
-            pixels[i].B = 0;
+            pixels->setPixelColor(i, Adafruit_NeoPixel::Color(0,0,0));
         }
     }
 
@@ -522,8 +515,8 @@ public:
     }
 
 private:
-    Pixel_t* pixels;
-    WS2812* ledstrip;
+    Adafruit_NeoPixel * pixels;
+
     bool inverse = false;
     float currentTPS = 0;
 

@@ -437,6 +437,7 @@ private:
 #endif
 
 void wr_growValueArray( WRGCObject* va, int newSize );
+WRValue* wr_valueFromConfirmedStruct( WRValue* value, uint32_t hash );
 
 #define IS_SVA_VALUE_TYPE(V) ((V)->m_type & 0x1)
 
@@ -471,6 +472,7 @@ void wr_growValueArray( WRGCObject* va, int newSize );
 #define IS_RAW_ARRAY(X) (((X)&EX_TYPE_MASK)==WR_EX_RAW_ARRAY)
 #define IS_HASH_TABLE(X) ((X)==WR_EX_HASH_TABLE)
 #define EXPECTS_HASH_INDEX(X) ( ((X)==WR_EX_STRUCT) || ((X)==WR_EX_HASH_TABLE) )
+#define IS_STRUCT(X) ((X) == WR_EX_STRUCT)
 
 int wr_addI( int a, int b );
 
@@ -514,7 +516,7 @@ bool wr_deserializeEx( WRValue& value, WRValueSerializer& serializer, WRContext*
 class WRValueSerializer
 {
 public:
-	
+
 	WRValueSerializer() : m_pos(0), m_size(0), m_buf(0) {}
 	WRValueSerializer( const char* data, const int size ) : m_pos(0), m_size(size)
 	{
@@ -531,7 +533,7 @@ public:
 			memcpy( m_buf, data, size );
 		}
 	}
-	
+
 	~WRValueSerializer() { g_free(m_buf); }
 
 	void getOwnership( char** buf, int* len )
@@ -540,7 +542,7 @@ public:
 		*len = m_pos;
 		m_buf = 0;
 	}
-	
+
 	int size() const { return m_pos; }
 	const char* data() const { return m_buf; }
 
@@ -650,7 +652,7 @@ public:
 
 		return 0;
 	}
-	
+
 	//------------------------------------------------------------------------------
 	L* addHead()
 	{
@@ -659,7 +661,7 @@ public:
 			m_head = (Node*)g_malloc(sizeof(Node));
 			m_head->next = 0;
 			new (&(m_head->item)) L();
-			
+
 			m_tail = m_head;
 		}
 		else
@@ -672,7 +674,7 @@ public:
 		}
 		return &(m_head->item);
 	}
-	
+
 	//------------------------------------------------------------------------------
 	L* addTail()
 	{
@@ -710,7 +712,7 @@ public:
 				{
 					return popTail( item );
 				}
-				
+
 				prev->next = N->next;
 				if ( m_iter == N )
 				{
@@ -728,7 +730,7 @@ public:
 
 				N->item.~L();
 				g_free( N );
-				
+
 				break;
 			}
 
@@ -841,7 +843,7 @@ public:
 					N->next->item.~L();
 					g_free( N->next );
 
-					
+
 					N->next = 0;
 					m_tail = N;
 					break;
@@ -872,7 +874,7 @@ public:
 	public:
 		Iterator( SimpleLL<L> const& list ) { iterate(list); }
 		Iterator() : m_list(0), m_current(0) {}
-			
+
 		bool operator!=( const Iterator& other ) { return m_current != other.m_current; }
 		L& operator* () const { return m_current->item; }
 
@@ -1108,13 +1110,14 @@ enum WRGCFlags
 {
 	GCFlag_NoContext = 1<<0,
 	GCFlag_Marked = 1<<1,
+	GCFlag_Perm = 1<<2,
 };
 
 //------------------------------------------------------------------------------
 class WRGCBase
 {
 public:
-	
+
 	// the order here matters for data alignment
 
 #if (__cplusplus <= 199711L)
@@ -1122,9 +1125,9 @@ public:
 #else
 	WRGCObjectType m_type;
 #endif
-	
+
 	int8_t m_flags;
-	
+
 	union
 	{
 		uint16_t m_mod;
@@ -1218,7 +1221,7 @@ struct WRFunction
 {
 	uint16_t namespaceOffset;
 	uint16_t functionOffset;
-	
+
 	uint32_t hash;
 
 	uint8_t arguments;
@@ -1239,15 +1242,15 @@ struct WRContext
 	uint16_t globals;
 
 	uint32_t allocatedMemoryHint; // _approximately_ how much memory has been allocated since last gc
-	
+
 	const unsigned char* bottom;
 	const unsigned char* codeStart;
 	int32_t bottomSize;
 
 	WRValue* stack;
-	
+
 	const unsigned char* stopLocation;
-	
+
 	WRGCBase* svAllocated;
 
 #ifdef WRENCH_INCLUDE_DEBUG_CODE
@@ -1269,14 +1272,15 @@ struct WRContext
 
 	WRFunction* localFunctions;
 	uint8_t numLocalFunctions;
-	
+
 	WRContext* imported; // linked list of contexts this one imported
 
 	WRContext* nextStateContextLink;
 
+	void markBase( WRGCBase* svb );
 	void mark( WRValue* s );
 	void gc( WRValue* stackTop );
-	
+
 	WRGCObject* getSVA( int size, WRGCObjectType type, bool init );
 };
 
@@ -1296,11 +1300,11 @@ struct WRState
 	int sliceInstructionCount;
 	int yieldEnabled;
 #endif
-	
+
 	WRContext* contextList;
 
 	WRLibraryCleanup* libCleanupFunctions;
-	
+
 	WRGCObject globalRegistry;
 
 	uint16_t allocatedMemoryLimit; // WRENCH_DEFAULT_ALLOCATED_MEMORY_GC_HINT by default
@@ -1394,6 +1398,8 @@ extern WRReturnFunc wr_CompareEQ[16];
 uint32_t wr_hash_read8( const void* dat, const int len );
 uint32_t wr_hashStr_read8( const char* dat );
 
+WRValue* wr_newObjectTable( WRContext* context, WRValue* stackTop, const uint8_t* pc, const unsigned char* tableIn );
+
 bool wr_concatStringCheck( WRValue* to, WRValue* from, WRValue* target );
 void wr_valueToEx( const WRValue* ex, WRValue* value );
 
@@ -1436,7 +1442,7 @@ void wr_valueToEx( const WRValue* ex, WRValue* value );
    int16_t READ_16_FROM_PC_func( const unsigned char* P );
    #define READ_16_FROM_PC(P) READ_16_FROM_PC_func(P)
   #endif
-   
+
  #else
 
   #ifndef READ_32_FROM_PC
@@ -1445,7 +1451,7 @@ void wr_valueToEx( const WRValue* ex, WRValue* value );
   #ifndef READ_16_FROM_PC
    #define READ_16_FROM_PC(P) ((int16_t)((int16_t)*(P) | ((int16_t)*(P+1))<<8))
   #endif
-   
+
  #endif
 #endif
 
@@ -1572,20 +1578,20 @@ enum WROpcode
 	O_GGCompareGE,
 	O_GGCompareLT,
 	O_GGCompareLE,
-	O_GGCompareEQ, 
-	O_GGCompareNE, 
+	O_GGCompareEQ,
+	O_GGCompareNE,
 
 	O_LLCompareGT,
 	O_LLCompareGE,
 	O_LLCompareLT,
 	O_LLCompareLE,
-	O_LLCompareEQ, 
-	O_LLCompareNE, 
+	O_LLCompareEQ,
+	O_LLCompareNE,
 
 	O_GSCompareEQ,
-	O_LSCompareEQ, 
-	O_GSCompareNE, 
-	O_LSCompareNE, 
+	O_LSCompareEQ,
+	O_GSCompareNE,
+	O_LSCompareNE,
 	O_GSCompareGE,
 	O_LSCompareGE,
 	O_GSCompareLE,
@@ -1595,10 +1601,10 @@ enum WROpcode
 	O_GSCompareLT,
 	O_LSCompareLT,
 
-	O_GSCompareEQBZ, 
-	O_LSCompareEQBZ, 
-	O_GSCompareNEBZ, 
-	O_LSCompareNEBZ, 
+	O_GSCompareEQBZ,
+	O_LSCompareEQBZ,
+	O_GSCompareNEBZ,
+	O_LSCompareNEBZ,
 	O_GSCompareGEBZ,
 	O_LSCompareGEBZ,
 	O_GSCompareLEBZ,
@@ -1782,7 +1788,7 @@ enum WROpcode
 	O_InitVar,
 
 	O_DebugInfo,
-				
+
 	// non-interpreted opcodes
 	O_HASH_PLACEHOLDER,
 	O_FUNCTION_CALL_PLACEHOLDER,
@@ -1844,11 +1850,11 @@ class WRstr
 {
 public:
 	WRstr() { m_smallbuf[m_len = 0] = 0 ; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; }
-	WRstr( const WRstr& str) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(str, str.size()); } 
-	WRstr( const WRstr* str ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; if ( str ) { set(*str, str->size()); } } 
+	WRstr( const WRstr& str) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(str, str.size()); }
+	WRstr( const WRstr* str ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; if ( str ) { set(*str, str->size()); } }
 	WRstr( const char* s, const unsigned int len ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(s, len); }
 	WRstr( const char* s ) { m_len = 0; m_str = m_smallbuf; m_buflen = c_sizeofBaseString; set(s, (unsigned int)strlen(s)); }
-	WRstr( const char c ) { m_len = 1; m_str = m_smallbuf; m_smallbuf[0] = c; m_smallbuf[1] = 0; m_buflen = c_sizeofBaseString; } 
+	WRstr( const char c ) { m_len = 1; m_str = m_smallbuf; m_smallbuf[0] = c; m_smallbuf[1] = 0; m_buflen = c_sizeofBaseString; }
 
 #ifdef STR_FILE_OPERATIONS
 	inline bool fileToBuffer( const char* fileName, const bool appendToBuffer =false );
@@ -1911,14 +1917,14 @@ public:
 #endif
 	static inline bool isWildMatch( const char* pattern, const char* haystack );
 	inline bool isWildMatch( const char* pattern ) const { return isWildMatch( pattern, m_str ); }
-				  
+
 	static inline bool isWildMatchCase( const char* pattern, const char* haystack );
 	inline bool isWildMatchCase( const char* pattern ) const { return isWildMatchCase( pattern, m_str ); }
 
 	inline WRstr& insert( const char* buf, const unsigned int len, const unsigned int startPos =0 );
 	inline WRstr& insert( const WRstr& s, const unsigned int startPos =0 ) { return insert(s.m_str, s.m_len, startPos); }
 
-	inline WRstr& append( const char* buf, const unsigned int len ) { return insert(buf, len, m_len); } 
+	inline WRstr& append( const char* buf, const unsigned int len ) { return insert(buf, len, m_len); }
 	inline WRstr& append( const char c );
 	inline WRstr& append( const WRstr& s ) { return insert(s.m_str, s.m_len, m_len); }
 
@@ -2136,7 +2142,7 @@ void WRstr::release( char** toBuf, unsigned int* len )
 	{
 		*len = m_len;
 	}
-	
+
 	if ( !m_len )
 	{
 		*toBuf = 0;
@@ -2186,7 +2192,7 @@ WRstr& WRstr::giveOwnership( char* buf, const unsigned int len )
 	m_len = len;
 	m_buflen = len;
 	m_str[m_len] = 0;
-	
+
 	return *this;
 }
 
@@ -2230,7 +2236,7 @@ WRstr& WRstr::alloc( const unsigned int characters, const bool preserveContents 
 	{
 		char* newStr = (char*)g_malloc( characters + 1 ); // create the space
 
-		if ( preserveContents ) 
+		if ( preserveContents )
 		{
 			memcpy( newStr, m_str, m_buflen ); // preserve whatever we had
 		}
@@ -2241,7 +2247,7 @@ WRstr& WRstr::alloc( const unsigned int characters, const bool preserveContents 
 		}
 
 		m_str = newStr;
-		m_buflen = characters;		
+		m_buflen = characters;
 	}
 
 	return *this;
@@ -2617,9 +2623,9 @@ public:
 		return *this;
 	}
 
-	unsigned int size() const 
+	unsigned int size() const
 	{
-		return m_len; 
+		return m_len;
 	}
 
 	WROpcodeStream (const WROpcodeStream &other ) { m_buf = 0; *this = other; }
@@ -2713,7 +2719,7 @@ SOFTWARE.
 
 #ifndef WRENCH_WITHOUT_COMPILER
 
-#define WR_COMPILER_LITERAL_STRING 0x10 
+#define WR_COMPILER_LITERAL_STRING 0x10
 
 //------------------------------------------------------------------------------
 enum WROperationType
@@ -2809,7 +2815,7 @@ const WROperation c_operations[] =
 	{ "._hash",  2, O_HashOf,           true,  WR_OPER_POST, O_LAST },
 	{ "._remove", 2, O_Remove,			true,  WR_OPER_POST, O_LAST },
 	{ "._exists", 2, O_HashEntryExists, true,  WR_OPER_POST, O_LAST },
-	
+
 	{ 0, 0, O_LAST, false, WR_OPER_PRE, O_LAST },
 };
 const int c_highestPrecedence = 17; // one higher than the highest entry above, things that happen absolutely LAST
@@ -2833,7 +2839,7 @@ struct WRNamespaceLookup
 	uint32_t hash; // hash of symbol
 	WRarray<int> references; // where this symbol is referenced (loaded) in the bytecode
 	WRstr label;
-	
+
 	WRNamespaceLookup() { reset(0); }
 	void reset( uint32_t h )
 	{
@@ -2848,7 +2854,7 @@ struct BytecodeJumpOffset
 	int offset;
 	WRarray<int> references;
 	uint32_t gotoHash;
-	
+
 	BytecodeJumpOffset() : offset(0), gotoHash(0) {}
 };
 
@@ -2872,23 +2878,23 @@ struct WRBytecode
 	WRarray<WRNamespaceLookup> unitObjectSpace;
 
 	void invalidateOpcodeCache() { opcodes.clear(); }
-	
+
 	WRarray<BytecodeJumpOffset> jumpOffsetTargets;
 	WRarray<GotoSource> gotoSource;
-	
+
 	void clear()
 	{
 		all.clear();
 		opcodes.clear();
 		isStructSpace = false;
 		localSpace.clear();
-		
+
 		functionSpace.clear();
 		unitObjectSpace.clear();
-		
+
 		jumpOffsetTargets.clear();
 		gotoSource.clear();
-		
+
 		isStructSpace = false;
 	}
 };
@@ -2907,9 +2913,9 @@ struct WRExpressionContext
 	WRValue value;
 	WRstr literalString;
 	const WROperation* operation;
-	
+
 	int stackPosition;
-	
+
 	WRBytecode bytecode;
 
 	WRExpressionContext() { reset(); }
@@ -3011,7 +3017,7 @@ public:
 
 	//------------------------------------------------------------------------------
 	void swapWithTop( int stackPosition, bool addOpcodes =true );
-	
+
 	WRExpression() { reset(); }
 	WRExpression( WRarray<WRNamespaceLookup>& localSpace, bool isStructSpace )
 	{
@@ -3052,13 +3058,13 @@ struct WRUnitContext
 	WRarray<ConstantValue> constantValues;
 
 	int16_t offsetOfLocalHashMap;
-	
+
 	// the code that runs when it loads
 	// the locals it has
 	WRBytecode bytecode;
 
 	int parentUnitIndex;
-	
+
 	WRUnitContext() { reset(); }
 	void reset()
 	{
@@ -3087,7 +3093,7 @@ public:
 					 const uint8_t compilerOptionFlags );
 
 private:
-	
+
 	bool isReserved( const char* token );
 	bool isValidLabel( WRstr& token, bool& isGlobal, WRstr& prefix, bool& isLibConstant );
 
@@ -3110,13 +3116,13 @@ private:
 	bool m_embedSourceCode;
 	bool m_needVar;
 	bool m_exportNextUnit;
-	
+
 	uint16_t m_lastCode;
 	uint16_t m_lastParam;
 	void pushDebug( uint16_t code, WRBytecode& bytecode,int param );
 	int getSourcePosition();
 	int getSourcePosition( int& onLine, int& onChar, WRstr* line =0 );
-	
+
 	int addRelativeJumpTarget( WRBytecode& bytecode );
 	void setRelativeJumpTarget( WRBytecode& bytecode, int relativeJumpTarget );
 	void addRelativeJumpSourceEx( WRBytecode& bytecode, WROpcode opcode, int relativeJumpTarget, const unsigned char* data, const int dataSize );
@@ -3124,7 +3130,7 @@ private:
 	void resolveRelativeJumps( WRBytecode& bytecode );
 
 	void appendBytecode( WRBytecode& bytecode, WRBytecode& addMe );
-	
+
 	void pushLiteral( WRBytecode& bytecode, WRExpressionContext& context );
 	void pushLibConstant( WRBytecode& bytecode, WRExpressionContext& context );
 	int addLocalSpaceLoad( WRBytecode& bytecode, WRstr& token, bool addOnly, bool varSeen );
@@ -3169,7 +3175,7 @@ private:
 	WRstr m_loadedToken;
 	WRValue m_loadedValue;
 	bool m_loadedQuoted;
-	
+
 	WRError m_err;
 	bool m_EOF;
 	bool m_LastParsedLabel;
@@ -3178,7 +3184,7 @@ private:
 	bool m_quoted;
 
 	uint32_t m_newHashValue;
-	
+
 	int m_unitTop;
 	WRarray<WRUnitContext> m_units;
 
@@ -3322,7 +3328,7 @@ struct WrenchPacket
 	uint8_t* payload( uint32_t offset =0 ) { return (uint8_t*)((char *)this + sizeof(WrenchPacket)) + offset; }
 	uint8_t operator[] ( const int offset ) { return *(uint8_t*)((char*)this + sizeof(WrenchPacket)) + offset; }
 	uint8_t* data() { return (uint8_t*)this; }
-	
+
 	WrenchPacket() {}
 	WrenchPacket( const int32_t type );
 	static WrenchPacket* alloc( WrenchPacket const& base );
@@ -3338,7 +3344,7 @@ public:
 
 	operator WrenchPacket* () const { return packet; }
 	operator bool() const { return packet != 0; }
-	
+
 	WrenchPacketScoped( WrenchPacket* manage =0 ) : packet(manage) {}
 	WrenchPacketScoped( const uint32_t type ) : packet( WrenchPacket::alloc(type) ) {}
 	WrenchPacketScoped( const uint32_t type, const int bytes, const uint8_t* data ) : packet( WrenchPacket::alloc(type, bytes, data) ) {}
@@ -3404,7 +3410,7 @@ public:
 	void init();
 
 	WRDebugClientInterface* m_parent;
-	
+
 	char* m_sourceBlock;
 	uint32_t m_sourceBlockLen;
 	uint32_t m_sourceBlockHash;
@@ -3413,7 +3419,7 @@ public:
 	void populateSymbols();
 
 	void (*outputDebug)( const char* debugText );
-			
+
 	bool m_symbolsLoaded;
 	SimpleLL<WrenchSymbol>* m_globals;
 	SimpleLL<WrenchFunction>* m_functions;
@@ -3425,7 +3431,7 @@ public:
 	WrenchDebugCommInterface* m_comm;
 
 	WrenchPacket* getPacket( const int timeoutMilliseconds =0 );
-	
+
 	WRState* m_scratchState;
 	WRContext* m_scratchContext;
 };
@@ -3457,10 +3463,10 @@ public:
 	WRDebugServerInterface* m_parent;
 	bool m_firstCall;
 	int32_t m_stopOnLine;
-	
+
 	uint8_t* m_externalCodeBlock;
-	uint32_t m_externalCodeBlockSize;	
-	
+	uint32_t m_externalCodeBlockSize;
+
 	const uint8_t* m_embeddedSource;
 	uint32_t m_embeddedSourceLen;
 	uint32_t m_embeddedSourceHash;
@@ -3739,7 +3745,7 @@ SOFTWARE.
 class WrenchDebugCommInterface
 {
 public:
-	// block until exactly 'bytes' are sent or return false 
+	// block until exactly 'bytes' are sent or return false
 	virtual bool send( WrenchPacket* packet );
 	virtual WrenchPacket* receive( const int timeoutMilliseconds =0 );
 
@@ -3775,13 +3781,13 @@ public:
 	bool serve( const int port );
 	bool accept();
 	bool connect( const char* address, const int port );
-	
+
 	bool sendEx( const uint8_t* data, const int bytes );
 	bool recvEx( uint8_t* data, const int bytes, const int timeoutMilliseconds );
 	uint32_t peekEx( const int timeoutMilliseconds );
-	
+
 	WrenchDebugTcpInterface();
-	
+
 private:
 	int m_socket;
 };
@@ -3793,13 +3799,13 @@ class WrenchDebugSerialInterface : public WrenchDebugCommInterface
 public:
 
 	bool open( const char* name );
-	
+
 	bool sendEx( const uint8_t* data, const int bytes );
 	bool recvEx( uint8_t* data, const int bytes, const int timeoutMilliseconds );
 	uint32_t peekEx( const int timeoutMilliseconds );
-	
+
 	WrenchDebugSerialInterface();
-	
+
 private:
 	HANDLE m_interface;
 };
@@ -4046,7 +4052,7 @@ WRError WRCompilationContext::compile( const char* source,
 		m_loadedToken = token;
 		m_loadedValue = value;
 		m_loadedQuoted = m_quoted;
-		
+
 		parseStatement( 0, ';', O_GlobalStop );
 
 	} while ( !m_EOF && (m_err == WR_ERR_None) );
@@ -4119,7 +4125,7 @@ WRError wr_compile( const char* source,
 	assert( O_LAST < 255 );
 
 	// create a compiler context that has all the necessary stuff so it's completely unloaded when complete
-	WRCompilationContext comp; 
+	WRCompilationContext comp;
 
 	return comp.compile( source, size, out, outLen, errMsg, compilerOptionFlags );
 }
@@ -4136,7 +4142,7 @@ void streamDump( WROpcodeStream const& stream )
 bool WRCompilationContext::isValidLabel( WRstr& token, bool& isGlobal, WRstr& prefix, bool& isLibConstant )
 {
 	isLibConstant = false;
-	
+
 	prefix.clear();
 
 	if ( !token.size() || (!isalpha(token[0]) && token[0] != '_' && token[0] != ':') ) // non-zero size and start with alpha or '_' ?
@@ -4193,11 +4199,11 @@ bool WRCompilationContext::isValidLabel( WRstr& token, bool& isGlobal, WRstr& pr
 				token.shave( prefix.size() + 2 );
 				i -= (prefix.size() + 1);
 			}
-			
+
 			isGlobal = true;
 			continue;
 		}
-		
+
 		if ( !isalnum(token[i]) && token[i] != '_' )
 		{
 			return false;
@@ -4208,7 +4214,7 @@ bool WRCompilationContext::isValidLabel( WRstr& token, bool& isGlobal, WRstr& pr
 	{
 		return false;
 	}
-	
+
 	if ( foundColon && token[0] != ':' )
 	{
 		isLibConstant = true;
@@ -4233,7 +4239,7 @@ void WRCompilationContext::pushDebug( uint16_t code, WRBytecode& bytecode, int p
 
 	m_lastParam = param;
 	m_lastCode = code;
-	
+
 	pushOpcode( bytecode, O_DebugInfo );
 
 	uint16_t codeword = code | ((uint16_t)param & WRD_PayloadMask);
@@ -4304,7 +4310,7 @@ void WRCompilationContext::addRelativeJumpSourceEx( WRBytecode& bytecode, WROpco
 	pushOpcode( bytecode, opcode );
 
 	int offset = bytecode.all.size();
-	
+
 	if ( dataSize ) // additional data
 	{
 		pushData( bytecode, data, dataSize );
@@ -4361,7 +4367,7 @@ void WRCompilationContext::addRelativeJumpSource( WRBytecode& bytecode, WROpcode
 
 		default: break;
 	}
-	
+
 	bytecode.jumpOffsetTargets[relativeJumpTarget].references.append() = offset;
 	pushData( bytecode, "\t\t", 2 );
 }
@@ -4461,7 +4467,7 @@ void WRCompilationContext::resolveRelativeJumps( WRBytecode& bytecode )
 					break;
 			}
 
-			
+
 			if ( (diff < 128) && (diff > -129) && !no8version )
 			{
 				switch( o )
@@ -4488,7 +4494,7 @@ void WRCompilationContext::resolveRelativeJumps( WRBytecode& bytecode )
 					case O_LSCompareGTBZ: *bytecode.all.p_str(offset - 1) = O_LSCompareGTBZ8; ++offset; break;
 					case O_GSCompareLTBZ: *bytecode.all.p_str(offset - 1) = O_GSCompareLTBZ8; ++offset; break;
 					case O_LSCompareLTBZ: *bytecode.all.p_str(offset - 1) = O_LSCompareLTBZ8; ++offset; break;
-										  
+
 					case O_LLCompareLTBZ: *bytecode.all.p_str(offset - 1) = O_LLCompareLTBZ8; offset += 2; break;
 					case O_LLCompareGTBZ: *bytecode.all.p_str(offset - 1) = O_LLCompareGTBZ8; offset += 2; break;
 					case O_LLCompareLEBZ: *bytecode.all.p_str(offset - 1) = O_LLCompareLEBZ8; offset += 2; break;
@@ -4517,7 +4523,7 @@ void WRCompilationContext::resolveRelativeJumps( WRBytecode& bytecode )
 					case O_CompareBEQ8:
 					case O_CompareBNE8:
 						break;
-						
+
 					case O_GSCompareEQBZ8:
 					case O_LSCompareEQBZ8:
 					case O_GSCompareNEBZ8:
@@ -4643,7 +4649,7 @@ void WRCompilationContext::resolveRelativeJumps( WRBytecode& bytecode )
 					case O_LSCompareLTBZ:
 						++offset;
 						break;
-					
+
 					case O_LLCompareLTBZ:
 					case O_LLCompareGTBZ:
 					case O_LLCompareLEBZ:
@@ -4660,14 +4666,14 @@ void WRCompilationContext::resolveRelativeJumps( WRBytecode& bytecode )
 						offset += 2;
 						break;
 					}
-						
+
 					default:
 					{
 						m_err = WR_ERR_compiler_panic;
 						return;
 					}
 				}
-				
+
 				wr_pack16( diff, bytecode.all.p_str(offset) );
 			}
 		}
@@ -4679,7 +4685,7 @@ void WRCompilationContext::pushLiteral( WRBytecode& bytecode, WRExpressionContex
 {
 	WRValue& value = context.value;
 	unsigned char data[4];
-	
+
 	if ( value.type == WR_INT && value.i == 0 )
 	{
 		pushOpcode( bytecode, O_LiteralZero );
@@ -4741,9 +4747,9 @@ int WRCompilationContext::addLocalSpaceLoad( WRBytecode& bytecode, WRstr& token,
 	}
 
 	uint32_t hash = wr_hashStr(token);
-	
+
 	unsigned int i=0;
-		
+
 	for( ; i<bytecode.localSpace.count(); ++i )
 	{
 		if ( bytecode.localSpace[i].hash == hash )
@@ -4795,14 +4801,14 @@ int WRCompilationContext::addLocalSpaceLoad( WRBytecode& bytecode, WRstr& token,
 
 	bytecode.localSpace[i].hash = hash;
 	bytecode.localSpace[i].label = token;
-	
+
 	if ( !addOnly )
 	{
 		pushOpcode( bytecode, O_LoadFromLocal );
 		unsigned char c = i;
 		pushData( bytecode, &c, 1 );
 	}
-	
+
 	return i;
 }
 
@@ -4836,7 +4842,7 @@ int WRCompilationContext::addGlobalSpaceLoad( WRBytecode& bytecode, WRstr& token
 		m_err = WR_ERR_var_not_seen_before_label;
 		return 0;
 	}
-	
+
 	m_units[0].bytecode.localSpace[i].hash = hash;
 	m_units[0].bytecode.localSpace[i].label = t2;
 
@@ -4874,7 +4880,7 @@ void WRCompilationContext::loadExpressionContext( WRExpression& expression, int 
 				pushLibConstant( expression.bytecode, expression.context[depth] );
 				break;
 			}
-			
+
 			case EXTYPE_LITERAL:
 			{
 				pushLiteral( expression.bytecode, expression.context[depth] );
@@ -4904,7 +4910,7 @@ void WRCompilationContext::loadExpressionContext( WRExpression& expression, int 
 					expression.bytecode.all += O_InitVar;
 					expression.bytecode.opcodes += O_InitVar;
 				}
-						
+
 				break;
 			}
 
@@ -4925,7 +4931,7 @@ void WRCompilationContext::loadExpressionContext( WRExpression& expression, int 
 	}
 
 	expression.pushToStack( depth ); // make sure stack knows something got loaded on top of it
-	
+
 	expression.context[depth].type = EXTYPE_RESOLVED; // this slot is now a resolved value sitting on the stack
 }
 
@@ -4936,7 +4942,7 @@ void WRExpression::swapWithTop( int stackPosition, bool addOpcodes )
 	{
 		return;
 	}
-	
+
 	unsigned int currentTop = -1;
 	unsigned int swapWith = -1;
 	for( unsigned int i=0; i<context.count(); ++i )
@@ -4945,7 +4951,7 @@ void WRExpression::swapWithTop( int stackPosition, bool addOpcodes )
 		{
 			swapWith = i;
 		}
-		
+
 		if ( context[i].stackPosition == 0 )
 		{
 			currentTop = i;
@@ -5072,7 +5078,7 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			{
 				if ( expression.context[first].stackPosition == -1 )
 				{
-					loadExpressionContext( expression, first, o ); 
+					loadExpressionContext( expression, first, o );
 				}
 				else if ( expression.context[first].stackPosition != 0 )
 				{
@@ -5147,7 +5153,7 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 				if ( expression.context[first].stackPosition == -1 )
 				{
 					loadExpressionContext( expression, second, o ); // nope, grab 'em
-					loadExpressionContext( expression, first, o ); 
+					loadExpressionContext( expression, first, o );
 				}
 				else
 				{
@@ -5201,13 +5207,13 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 				else
 				{
 					// can still do it in one opcode
-					
+
 					WRCompilationContext::pushOpcode( expression.bytecode, O_SwapTwoToTop );
 					unsigned char pos = expression.context[first].stackPosition + 1;
 					WRCompilationContext::pushData( expression.bytecode, &pos, 1 );
 					pos = 2;
 					WRCompilationContext::pushData( expression.bytecode, &pos, 1 );
-					
+
 					expression.swapWithTop( 1, false );
 					expression.swapWithTop( expression.context[first].stackPosition, false );
 				}
@@ -5268,7 +5274,7 @@ unsigned int WRCompilationContext::resolveExpressionEx( WRExpression& expression
 			break;
 		}
 	}
-	
+
 	return ret;
 }
 
@@ -5281,13 +5287,13 @@ bool WRCompilationContext::operatorFound( WRstr const& token, WRarray<WRExpressi
 		{
 			if ( c_operations[i].type == WR_OPER_PRE
 				 && depth > 0
-				 && (context[depth-1].type != EXTYPE_OPERATION 
+				 && (context[depth-1].type != EXTYPE_OPERATION
 					 || (context[depth - 1].type == EXTYPE_OPERATION &&
 						 (context[depth - 1].operation->type != WR_OPER_BINARY && context[depth - 1].operation->type != WR_OPER_BINARY_COMMUTE))) )
 			{
 				continue;
 			}
-			
+
 			context[depth].operation = c_operations + i;
 			context[depth].type = EXTYPE_OPERATION;
 
@@ -5306,7 +5312,7 @@ bool WRCompilationContext::parseCallFunction( WRExpression& expression, WRstr fu
 	WRstr prefix = expression.context[depth].prefix;
 
 	expression.context[depth].type = EXTYPE_BYTECODE_RESULT;
-	
+
 	unsigned char argsPushed = 0;
 
 	if ( parseArguments )
@@ -5335,7 +5341,7 @@ bool WRCompilationContext::parseCallFunction( WRExpression& expression, WRstr fu
 			m_loadedToken = token2;
 			m_loadedValue = value2;
 			m_loadedQuoted = m_quoted;
-			
+
 			char end = parseExpression( nex );
 
 			if ( nex.bytecode.opcodes.size() > 0 )
@@ -5354,7 +5360,7 @@ bool WRCompilationContext::parseCallFunction( WRExpression& expression, WRstr fu
 					nex.bytecode.all += O_Dereference;
 				}
 			}
-			
+
 			appendBytecode( expression.context[depth].bytecode, nex.bytecode );
 
 			if ( end == ')' )
@@ -5415,7 +5421,7 @@ bool WRCompilationContext::parseCallFunction( WRExpression& expression, WRstr fu
 			pushData( expression.context[depth].bytecode, &argsPushed, 1 );
 			pushData( expression.context[depth].bytecode, "XXXX", 4 ); // TBD opcode plus index, OR hash if index was not found
 		}
-		
+
 		// hash will copydown result same as lib, unless
 		// copy/pop which case does nothing
 
@@ -5437,7 +5443,7 @@ bool WRCompilationContext::pushObjectTable( WRExpressionContext& context,
 
 	bool byHash = false;
 	bool byOrder = false;
-	
+
 	unsigned int i=0;
 	for( ; i<context.bytecode.unitObjectSpace.count(); ++i )
 	{
@@ -5486,7 +5492,7 @@ bool WRCompilationContext::pushObjectTable( WRExpressionContext& context,
 						return false;
 					}
 					byHash = true;
-					
+
 					pushOpcode( context.bytecode, O_AssignToObjectTableByHash );
 					uint8_t dat[4];
 					pushData( context.bytecode, wr_pack32(m_newHashValue, dat), 4 );
@@ -5527,7 +5533,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 {
 	bool inHashTable = false;
 	bool inArray = false;
-	
+
 	// start a value ... was something declared in front of us?
 	if ( depth == 3
 		 && expression.context[0].type == EXTYPE_LABEL
@@ -5573,7 +5579,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 
 			continue;
 		}
-	
+
 		if ( token == ',' )
 		{
 			if ( initializer == 0 )
@@ -5597,7 +5603,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 		if ( end == ':' )
 		{
 			bool nullKey = false;
-			
+
 			// we are in a hash table!
 			inHashTable = true;
 			if ( inArray )
@@ -5611,7 +5617,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 				nullKey = true;
 				pushOpcode( val.bytecode, O_LiteralZero );
 			}
-			
+
 			if ( subTableValue ) // sub-table keys don't make sense
 			{
 				m_err = WR_ERR_hash_table_invalid_key;
@@ -5619,7 +5625,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 			}
 
 			appendBytecode( expression.context[depth].bytecode, val.bytecode );
-			
+
 			if ( !getToken(expression.context[depth]) )
 			{
 				m_err = WR_ERR_unexpected_EOF;
@@ -5641,12 +5647,12 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 				m_loadedToken = token;
 				m_loadedValue = value;
 				m_loadedQuoted = m_quoted;
-				
+
 				WRExpression key( expression.bytecode.localSpace, expression.bytecode.isStructSpace );
 				key.context[0].token = token;
 				key.context[0].value = value;
 				end = parseExpression( key );
-				
+
 				if ( key.bytecode.all.size() ) // nor do null keys
 				{
 					if ( nullKey )
@@ -5654,7 +5660,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 						m_err = WR_ERR_hash_table_invalid_key;
 						return -1;
 					}
-					
+
 					appendBytecode( expression.context[depth].bytecode, key.bytecode );
 					pushOpcode( expression.context[depth].bytecode, O_AssignToHashTableAndPop );
 				}
@@ -5694,7 +5700,7 @@ int WRCompilationContext::parseInitializer( WRExpression& expression, int depth 
 				pushData( expression.context[depth].bytecode, idat, 2 );
 			}
 		}
-		
+
 		if ( end == '}' )
 		{
 			break;
@@ -5750,7 +5756,7 @@ bool WRCompilationContext::parseUnit( bool isStruct, int parentUnitIndex )
 	m_units[m_unitTop].bytecode.isStructSpace = isStruct;
 
 	m_units[m_unitTop].parentUnitIndex = parentUnitIndex; // if non-zero, must be called from a new'ed structure!
-	
+
 	// get the function name
 	if ( getToken(ex, "(") )
 	{
@@ -5761,12 +5767,12 @@ bool WRCompilationContext::parseUnit( bool isStruct, int parentUnitIndex )
 				m_err = WR_ERR_unexpected_EOF;
 				return false;
 			}
-			
+
 			if ( !m_quoted && token == ")" )
 			{
 				break;
 			}
-			
+
 			if ( !isValidLabel(token, isGlobal, prefix, isLibConstant) || isGlobal || isLibConstant )
 			{
 				m_err = WR_ERR_bad_label;
@@ -5810,7 +5816,7 @@ bool WRCompilationContext::parseUnit( bool isStruct, int parentUnitIndex )
 		m_err = WR_ERR_unexpected_token;
 		return false;
 	}
-		
+
 	parseStatement( m_unitTop, '}', O_Return );
 
 	if ( !m_units[m_unitTop].bytecode.opcodes.size()
@@ -5870,15 +5876,15 @@ bool WRCompilationContext::parseWhile( WROpcode opcodeToReturn )
 	{
 		return false;
 	}
-	
+
 	addRelativeJumpSource( m_units[m_unitTop].bytecode, O_RelativeJump, *m_continueTargets.tail() );
 	setRelativeJumpTarget( m_units[m_unitTop].bytecode, *m_breakTargets.tail() );
 
 	m_continueTargets.pop();
 	m_breakTargets.pop();
-	
+
 	resolveRelativeJumps( m_units[m_unitTop].bytecode );
-	
+
 	return true;
 }
 
@@ -5890,7 +5896,7 @@ bool WRCompilationContext::parseDoWhile( WROpcode opcodeToReturn )
 
 	int jumpToTop = addRelativeJumpTarget( m_units[m_unitTop].bytecode );
 	setRelativeJumpTarget( m_units[m_unitTop].bytecode, jumpToTop );
-	
+
 	if ( !parseStatement(m_unitTop, ';', opcodeToReturn) )
 	{
 		return false;
@@ -5943,7 +5949,7 @@ bool WRCompilationContext::parseDoWhile( WROpcode opcodeToReturn )
 
 	addRelativeJumpSource( m_units[m_unitTop].bytecode, O_BZ, *m_breakTargets.tail() );
 	addRelativeJumpSource( m_units[m_unitTop].bytecode, O_RelativeJump, jumpToTop );
-	
+
 	setRelativeJumpTarget( m_units[m_unitTop].bytecode, *m_breakTargets.tail() );
 
 	m_continueTargets.pop();
@@ -5981,7 +5987,7 @@ B:
 	.
 	goto B
 A:
-*/					
+*/
 
 
 /*
@@ -6064,7 +6070,7 @@ A:
 		pushOpcode( nex.bytecode, O_PopOne );
 
 		appendBytecode( m_units[m_unitTop].bytecode, nex.bytecode );
-		
+
 		if ( end == ';' )
 		{
 			foreachPossible = false;
@@ -6138,7 +6144,7 @@ A:
 	int conditionPoint = addRelativeJumpTarget( m_units[m_unitTop].bytecode );
 
 	setRelativeJumpTarget( m_units[m_unitTop].bytecode, conditionPoint );
-	
+
 	if ( foreachV || foreachKV )
 	{
 		if ( foreachV )
@@ -6157,7 +6163,7 @@ A:
 		else
 		{
 			unsigned char load[3] = { foreachLoad[1], foreachLoad[3], g };
-			
+
 			if ( foreachLoad[0] == O_LoadFromLocal )
 			{
 				if ( foreachLoad[2] == O_LoadFromLocal )
@@ -6181,7 +6187,7 @@ A:
 				}
 			}
 		}
-		
+
 		m_parsingFor = false;
 
 		// [ code ]
@@ -6358,7 +6364,7 @@ bool WRCompilationContext::parseEnum( int unitIndex )
 		}
 
 		prefix = token;
-		
+
 		WRValue defaultValue;
 		defaultValue.init();
 		defaultValue.ui = index++;
@@ -6410,7 +6416,7 @@ bool WRCompilationContext::parseEnum( int unitIndex )
 			{
 				value.i = -value.i;
 			}
-			
+
 			index = value.i + 1;
 		}
 		else if (value.type == WR_FLOAT)
@@ -6425,7 +6431,7 @@ bool WRCompilationContext::parseEnum( int unitIndex )
 			m_err = WR_ERR_bad_label;
 			return false;
 		}
-		
+
 		if ( lookupConstantValue(prefix) )
 		{
 			m_err = WR_ERR_constant_redefined;
@@ -6454,7 +6460,7 @@ uint32_t WRCompilationContext::getSingleValueHash( const char* end )
 	WRstr& token = ex.token;
 	WRValue& value = ex.value;
 	getToken( ex );
-	
+
 	if ( !m_quoted && token == "(" )
 	{
 		return getSingleValueHash( ")" );
@@ -6465,7 +6471,7 @@ uint32_t WRCompilationContext::getSingleValueHash( const char* end )
 		m_err = WR_ERR_switch_bad_case_hash;
 		return 0;
 	}
-	
+
 	uint32_t hash = ((uint8_t)value.type == WR_COMPILER_LITERAL_STRING) ? wr_hashStr(token) : value.getHash();
 
 	if ( !getToken(ex, end) )
@@ -6526,11 +6532,11 @@ bool WRCompilationContext::parseSwitch( WROpcode opcodeToReturn )
 		m_err = WR_ERR_unexpected_token;
 		return false;
 	}
-	
+
 	WRExpression selectionCriteria( m_units[m_unitTop].bytecode.localSpace, m_units[m_unitTop].bytecode.isStructSpace );
 	selectionCriteria.context[0].token = token;
 	selectionCriteria.context[0].value = value;
-	
+
 	if ( parseExpression(selectionCriteria) != ')' )
 	{
 		m_err = WR_ERR_unexpected_token;
@@ -6558,7 +6564,7 @@ bool WRCompilationContext::parseSwitch( WROpcode opcodeToReturn )
 	addRelativeJumpSource( m_units[m_unitTop].bytecode, O_RelativeJump, selectionLogicPoint );
 
 	unsigned int startingBytecodeMarker = m_units[m_unitTop].bytecode.all.size();
-	
+
 	for(;;)
 	{
 		if ( !getToken(ex) )
@@ -6639,17 +6645,17 @@ bool WRCompilationContext::parseSwitch( WROpcode opcodeToReturn )
 		// ahead and null it
 		m_units[m_unitTop].bytecode.all.shave(3);
 		m_units[m_unitTop].bytecode.opcodes.clear();
-			
+
 		pushOpcode(m_units[m_unitTop].bytecode, O_PopOne); // pop off the selection criteria
 
 		m_units[m_unitTop].bytecode.jumpOffsetTargets.pop();
 		m_breakTargets.pop();
 		return true;
 	}
-	
+
 	// make sure the last instruction is a break (jump) so the
 	// selection logic is skipped at the end of the last case/default
-	if ( !m_units[m_unitTop].bytecode.opcodes.size() 
+	if ( !m_units[m_unitTop].bytecode.opcodes.size()
 		 || (m_units[m_unitTop].bytecode.opcodes.size() && m_units[m_unitTop].bytecode.opcodes[m_units[m_unitTop].bytecode.opcodes.size() - 1] != O_RelativeJump) )
 	{
 		addRelativeJumpSource( m_units[m_unitTop].bytecode, O_RelativeJump, *m_breakTargets.tail() );
@@ -6773,7 +6779,7 @@ bool WRCompilationContext::parseSwitch( WROpcode opcodeToReturn )
 			{
 				g_free( table );
 				table = 0;
-			} 
+			}
 		}
 
 		if ( mod >= 0x7FFE )
@@ -6855,7 +6861,7 @@ bool WRCompilationContext::parseIf( WROpcode opcodeToReturn )
 	appendBytecode( m_units[m_unitTop].bytecode, nex.bytecode );
 
 	int conditionFalseMarker = addRelativeJumpTarget( m_units[m_unitTop].bytecode );
-	
+
 	addRelativeJumpSource( m_units[m_unitTop].bytecode, O_BZ, conditionFalseMarker );
 
 	if ( !parseStatement(m_unitTop, ';', opcodeToReturn) )
@@ -6872,14 +6878,14 @@ bool WRCompilationContext::parseIf( WROpcode opcodeToReturn )
 		int conditionTrueMarker = addRelativeJumpTarget( m_units[m_unitTop].bytecode ); // when it hits here it will jump OVER this section
 
 		addRelativeJumpSource( m_units[m_unitTop].bytecode, O_RelativeJump, conditionTrueMarker );
-		
+
 		setRelativeJumpTarget( m_units[m_unitTop].bytecode, conditionFalseMarker );
 
 		if ( !parseStatement(m_unitTop, ';', opcodeToReturn) )
 		{
 			return false;
 		}
-		
+
 		setRelativeJumpTarget( m_units[m_unitTop].bytecode, conditionTrueMarker );
 	}
 	else
@@ -6931,7 +6937,7 @@ bool WRCompilationContext::parseStatement( int unitIndex, char end, WROpcode opc
 			m_err = WR_ERR_unexpected_export_keyword;
 			break;
 		}
-		
+
 		if ( !m_quoted && token == "{" )
 		{
 			return parseStatement( unitIndex, '}', opcodeToReturn );
@@ -6972,6 +6978,8 @@ bool WRCompilationContext::parseStatement( int unitIndex, char end, WROpcode opc
 		}
 		else if ( !m_quoted && token == "struct" )
 		{
+			m_exportNextUnit = true; // always export structs
+
 			if ( unitIndex != 0 )
 			{
 				m_err = WR_ERR_statement_expected;
@@ -6990,7 +6998,7 @@ bool WRCompilationContext::parseStatement( int unitIndex, char end, WROpcode opc
 				m_err = WR_ERR_statement_expected;
 				return false;
 			}
-			
+
 			if ( !parseUnit(false, unitIndex) )
 			{
 				return false;
@@ -7200,12 +7208,12 @@ bool WRCompilationContext::readCurlyBlock( WRstr& block )
 		}
 
 		block += c;
-		
+
 		if ( c == '{' )
 		{
 			++closesNeeded;
 		}
-		
+
 		if ( c == '}' )
 		{
 			if ( closesNeeded == 0 )
@@ -7213,7 +7221,7 @@ bool WRCompilationContext::readCurlyBlock( WRstr& block )
 				m_err = WR_ERR_unexpected_token;
 				return false;
 			}
-			
+
 			if ( !--closesNeeded )
 			{
 				break;
@@ -7236,7 +7244,7 @@ WRError wr_compile( const char* source,
 {
 	return WR_ERR_compiler_not_loaded;
 }
-	
+
 #endif
 /*******************************************************************************
 Copyright (c) 2024 Curt Hartung -- curt.hartung@gmail.com
@@ -7269,7 +7277,6 @@ SOFTWARE.
 #define WR_DUMP_LINK_OUTPUT(D) //D
 #define WR_DUMP_UNIT_OUTPUT(D) //D
 #define WR_DUMP_BYTECODE(D) //D
-//WRstr str;
 
 //------------------------------------------------------------------------------
 void WRCompilationContext::createLocalHashMap( WRUnitContext& unit, unsigned char** buf, int* size )
@@ -7365,7 +7372,7 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 		 || (compilerOptionFlags & WR_EMBED_SOURCE_CODE) )
 	{
 		// hash of source compiled for this
-		code.append( wr_pack32(wr_hash(m_source, m_sourceLen), data), 4 ); 
+		code.append( wr_pack32(wr_hash(m_source, m_sourceLen), data), 4 );
 
 		WRstr symbols;
 
@@ -7380,12 +7387,12 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 			symbols.append( (char *)(data + 1), 2 );
 
 			symbols.append( m_units[u].name );
-			symbols.append( (char *)data, 1 ); 
+			symbols.append( (char *)data, 1 );
 
 			for( unsigned int s=0; s<m_units[u].bytecode.localSpace.count(); ++s )
 			{
 				symbols.append( m_units[u].bytecode.localSpace[s].label );
-				symbols.append( (char *)data, 1 ); 
+				symbols.append( (char *)data, 1 );
 			}
 		}
 
@@ -7440,7 +7447,7 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 				int size = 0;
 				uint8_t* map = 0;
 				createLocalHashMap( m_units[u], &map, &size );
-				
+
 				if ( size == 0 )
 				{
 					base = 0;
@@ -7564,7 +7571,7 @@ void WRCompilationContext::link( unsigned char** out, int* outLen, const uint8_t
 						{
 							code[index+3] = 3; // skip past the pop, or TO the NewObjectTable
 						}
-						else 
+						else
 						{
 							code[index+3] = 2; // skip by this push is seen
 							code[index+5] = O_PushIndexFunctionReturnValue;
@@ -7674,8 +7681,8 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 
 		if ( value.type != WR_REF )
 		{
-			if ( (depth > 0) 
-				 && ((expression.context[depth - 1].type == EXTYPE_LABEL) 
+			if ( (depth > 0)
+				 && ((expression.context[depth - 1].type == EXTYPE_LABEL)
 					 || (expression.context[depth - 1].type == EXTYPE_LITERAL)) )
 			{
 				// two labels/literals cannot follow each other
@@ -7689,7 +7696,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 			{
 				expression.context[depth].literalString = *(WRstr*)value.p;
 			}
-			
+
 			++depth;
 			continue;
 		}
@@ -7701,7 +7708,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 		}
 
 		pushDebug( WRD_LineNumber, expression.bytecode, getSourcePosition() );
-		
+
 		if ( token == "var" )
 		{
 			expression.context[depth].varSeen = true;
@@ -7717,16 +7724,16 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 
 			continue;
 		}
-		
+
 		if ( operatorFound(token, expression.context, depth) )
 		{
 			++depth;
 			continue;
 		}
-		
+
 		if ( !m_quoted && token == "new" )
 		{
-			if ( (depth < 2) || 
+			if ( (depth < 2) ||
 				 (expression.context[depth - 1].operation
 				  && expression.context[ depth - 1 ].operation->opcode != O_Assign) )
 			{
@@ -7734,14 +7741,14 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 				return 0;
 			}
 
-			if ( (depth < 2) 
+			if ( (depth < 2)
 				 || (expression.context[depth - 2].operation
 					 && expression.context[ depth - 2 ].operation->opcode != O_Index) )
 			{
 				m_err = WR_ERR_unexpected_token;
 				return 0;
 			}
-			
+
 			WRstr& token2 = expression.context[depth].token;
 			WRValue& value2 = expression.context[depth].value;
 
@@ -7763,7 +7770,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 
 			WRstr functionName = token2;
 			uint32_t hash = wr_hashStr( functionName );
-			
+
 			if ( !getToken(expression.context[depth]) )
 			{
 				m_err = WR_ERR_bad_expression;
@@ -7892,7 +7899,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 							break;
 						}
 					}
-					
+
 					if ( !getToken(expression.context[depth], ";") )
 					{
 						m_err = WR_ERR_unexpected_token;
@@ -7942,14 +7949,14 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 		if ( !m_quoted && token == "(" )
 		{
 			// might be cast, call or sub-expression
-			
+
 			if ( (depth > 0) &&
 				 (expression.context[depth - 1].type == EXTYPE_LABEL
 				 || expression.context[depth - 1].type == EXTYPE_LIB_CONSTANT) )
 			{
 				// always only a call
 				expression.context[depth - 1].type = EXTYPE_LABEL;
-				
+
 				--depth;
 				if ( !parseCallFunction(expression, expression.context[depth].token, depth, true) )
 				{
@@ -8051,7 +8058,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 				pushOpcode( expression.context[depth].bytecode, O_LiteralZero );
 				pushOpcode( expression.context[depth].bytecode, O_InitArray );
 			}
-			else 
+			else
 			{
 				expression.context[depth].bytecode = nex.bytecode;
 				operatorFound( WRstr("@[]"), expression.context, depth );
@@ -8067,8 +8074,8 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 
 		if ( isValidLabel(token, isGlobal, prefix, isLibConstant) )
 		{
-			if ( (depth > 0) 
-				&& ((expression.context[depth - 1].type == EXTYPE_LABEL) 
+			if ( (depth > 0)
+				&& ((expression.context[depth - 1].type == EXTYPE_LABEL)
 					|| (expression.context[depth - 1].type == EXTYPE_LITERAL)
 					|| (expression.context[depth - 1].type == EXTYPE_LIB_CONSTANT)) )
 			{
@@ -8096,10 +8103,10 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 						continue;
 //						getToken(expression.context[depth]) );
 //						--depth;
-						
+
 					}
 				}
-				
+
 				if ( !m_quoted && token == ":" )
 				{
 					uint32_t hash = wr_hashStr( label );
@@ -8111,7 +8118,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 							return false;
 						}
 					}
-					
+
 					int index = addRelativeJumpTarget( expression.bytecode );
 					expression.bytecode.jumpOffsetTargets[index].gotoHash = hash;
 					expression.bytecode.jumpOffsetTargets[index].offset = expression.bytecode.all.size() + 1;
@@ -8119,7 +8126,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 					// this always return a value
 					pushOpcode( expression.bytecode, O_LiteralZero );
 
-					
+
 					return ';';
 				}
 				else
@@ -8129,7 +8136,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 					m_loadedQuoted = m_quoted;
 				}
 			}
-			
+
 
 			expression.context[depth].type = isLibConstant ? EXTYPE_LIB_CONSTANT : EXTYPE_LABEL;
 			expression.context[depth].token = label;
@@ -8156,7 +8163,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 		unsigned int i = expression.context[1].bytecode.opcodes.size() - 1;
 		unsigned int a = expression.context[1].bytecode.all.size() - 1;
 		WROpcode o = (WROpcode)(expression.context[1].bytecode.opcodes[ i ]);
-		
+
 		switch( o )
 		{
 			case O_Index:
@@ -8174,7 +8181,7 @@ char WRCompilationContext::parseExpression( WRExpression& expression )
 				}
 				break;
 			}
-			
+
 			case O_IndexLiteral8:
 			{
 				if (a > 0)
@@ -8280,11 +8287,11 @@ bool WRCompilationContext::CheckFastLoad( WROpcode opcode, WRBytecode& bytecode,
 	}
 
 	if ( (opcode == O_Index && CheckSkipLoad(O_IndexSkipLoad, bytecode, a, o))
-		 || (opcode == O_BinaryMod && CheckSkipLoad(O_BinaryModSkipLoad, bytecode, a, o)) 
+		 || (opcode == O_BinaryMod && CheckSkipLoad(O_BinaryModSkipLoad, bytecode, a, o))
 		 || (opcode == O_BinaryRightShift && CheckSkipLoad(O_BinaryRightShiftSkipLoad, bytecode, a, o))
-		 || (opcode == O_BinaryLeftShift && CheckSkipLoad(O_BinaryLeftShiftSkipLoad, bytecode, a, o)) 
-		 || (opcode == O_BinaryAnd && CheckSkipLoad(O_BinaryAndSkipLoad, bytecode, a, o)) 
-		 || (opcode == O_BinaryOr && CheckSkipLoad(O_BinaryOrSkipLoad, bytecode, a, o)) 
+		 || (opcode == O_BinaryLeftShift && CheckSkipLoad(O_BinaryLeftShiftSkipLoad, bytecode, a, o))
+		 || (opcode == O_BinaryAnd && CheckSkipLoad(O_BinaryAndSkipLoad, bytecode, a, o))
+		 || (opcode == O_BinaryOr && CheckSkipLoad(O_BinaryOrSkipLoad, bytecode, a, o))
 		 || (opcode == O_BinaryXOR && CheckSkipLoad(O_BinaryXORSkipLoad, bytecode, a, o)) )
 	{
 		return true;
@@ -8461,8 +8468,65 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 
 		--o;
 		unsigned int a = bytecode.all.size() - 1;
-		if ( opcode == O_Return
-			 && bytecode.opcodes[o] == O_LiteralZero )
+
+		if ( opcode == O_Negate )
+		{
+			if ( bytecode.opcodes[o] == O_LiteralInt8 )
+			{
+				bytecode.all[ a ] = -bytecode.all[ a ];
+				return;
+			}
+			else if ( bytecode.opcodes[o] == O_LiteralInt16 && (a > 1) )
+			{
+				int16_t be = ((int16_t)bytecode.all[ a - 1 ])
+							 | ((int16_t)bytecode.all[ a ] << 8);
+				be = -be;
+
+				bytecode.all[ a - 1 ] = (uint8_t)(be & 0xFF);
+				bytecode.all[ a ] = (uint8_t)(be >> 8);
+				return;
+			}
+			else if ( bytecode.opcodes[o] == O_LiteralInt32 )
+			{
+				int32_t be = ((int32_t)bytecode.all[ a - 3 ])
+							 | ((int32_t)bytecode.all[ a - 2 ] << 8)
+							 | ((int32_t)bytecode.all[ a - 1 ] << 16)
+							 | ((int32_t)bytecode.all[ a ] << 24);
+				be = -be;
+
+				bytecode.all[ a - 3 ] = (uint8_t)(be & 0xFF);
+				bytecode.all[ a - 2 ] = (uint8_t)(be >> 8);
+				bytecode.all[ a - 1 ] = (uint8_t)(be >> 16);
+				bytecode.all[ a ] = (uint8_t)(be >> 24);
+				return;
+			}
+			else if ( bytecode.opcodes[o] == O_LiteralFloat )
+			{
+				struct BE
+				{
+					union
+					{
+						int32_t i;
+						float f;
+					};
+				};
+
+				BE be;
+				be.i = (((int32_t)bytecode.all[ a - 3 ])
+						   | ((int32_t)bytecode.all[ a - 2 ] << 8)
+						   | ((int32_t)bytecode.all[ a - 1 ] << 16)
+						   | ((int32_t)bytecode.all[ a ] << 24));
+				be.f = -be.f;
+
+				bytecode.all[ a - 3 ] = (uint8_t)(be.i & 0xFF);
+				bytecode.all[ a - 2 ] = (uint8_t)(be.i >> 8);
+				bytecode.all[ a - 1 ] = (uint8_t)(be.i >> 16);
+				bytecode.all[ a ] = (uint8_t)(be.i >> 24);
+				return;
+			}
+		}
+		else if ( opcode == O_Return
+				  && bytecode.opcodes[o] == O_LiteralZero )
 		{
 			bytecode.all[a] = O_ReturnZero;
 			bytecode.opcodes[o] = O_ReturnZero;
@@ -8621,7 +8685,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 					// [index]          a - 2
 					// LoadFromGlobal   a - 1
 					// [index]          a
-					
+
 					bytecode.all[ a - 3 ] = O_GGBinaryMultiplication;
 					bytecode.all[ a - 1 ] = bytecode.all[ a ];
 					bytecode.all.shave(1);
@@ -8657,7 +8721,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 					return;
 				}
 			}
-			
+
 			bytecode.all += opcode;
 			bytecode.opcodes += opcode;
 			return;
@@ -8951,7 +9015,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 				bytecode.opcodes[o] = O_LSCompareLTBZ;
 				bytecode.all[ a - 1 ] = O_LSCompareLTBZ;
 				return;
-			}			
+			}
 			else if ( bytecode.opcodes[o] == O_CompareEQ ) // assign+pop is very common
 			{
 				if ( (o>1) && (bytecode.opcodes[o-1] == O_LoadFromLocal) && (bytecode.opcodes[o-2] == O_LoadFromLocal) )
@@ -9122,7 +9186,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 		}
 		else if ( opcode == O_PopOne )
 		{
-			if ( bytecode.opcodes[o] == O_LoadFromLocal || bytecode.opcodes[o] == O_LoadFromGlobal ) 
+			if ( bytecode.opcodes[o] == O_LoadFromLocal || bytecode.opcodes[o] == O_LoadFromGlobal )
 			{
 				bytecode.all.shave(2);
 				bytecode.opcodes.clear();
@@ -9140,11 +9204,11 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 				return;
 			}
 			else if ( bytecode.opcodes[o] == O_PreIncrement || bytecode.opcodes[o] == O_PostIncrement )
-			{	
+			{
 				if ( (o > 0) && bytecode.opcodes[o-1] == O_LoadFromGlobal )
 				{
 					bytecode.all[ a - 2 ] = O_IncGlobal;
-										
+
 					bytecode.all.shave(1);
 					bytecode.opcodes.clear();
 				}
@@ -9163,7 +9227,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 				return;
 			}
 			else if ( bytecode.opcodes[o] == O_PreDecrement || bytecode.opcodes[o] == O_PostDecrement )
-			{	
+			{
 				if ( (o > 0) && bytecode.opcodes[o-1] == O_LoadFromGlobal )
 				{
 					bytecode.all[ a - 2 ] = O_DecGlobal;
@@ -9181,7 +9245,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 					bytecode.all[a] = O_PreDecrementAndPop;
 					bytecode.opcodes[o] = O_PreDecrementAndPop;
 				}
-				
+
 				return;
 			}
 			else if ( bytecode.opcodes[o] == O_Assign ) // assign+pop is very common
@@ -9372,7 +9436,7 @@ void WRCompilationContext::pushOpcode( WRBytecode& bytecode, WROpcode opcode )
 						return;
 					}
 				}
-								
+
 				bytecode.all[a] = O_AssignAndPop;
 				bytecode.opcodes[o] = O_AssignAndPop;
 				return;
@@ -9532,7 +9596,7 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 		bytecode.all[bytecode.all.size()-2] = O_IndexLocalLiteral16;
 		for( unsigned int i=1; i<addMe.all.size(); ++i )
 		{
-			bytecode.all += addMe.all[i];	
+			bytecode.all += addMe.all[i];
 		}
 		bytecode.opcodes.clear();
 		bytecode.opcodes += O_IndexLocalLiteral16;
@@ -9549,7 +9613,7 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 		bytecode.all[bytecode.all.size()-2] = O_IndexGlobalLiteral16;
 		for( unsigned int i=1; i<addMe.all.size(); ++i )
 		{
-			bytecode.all += addMe.all[i];	
+			bytecode.all += addMe.all[i];
 		}
 		bytecode.opcodes.clear();
 		bytecode.opcodes += O_IndexGlobalLiteral16;
@@ -9566,7 +9630,7 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 		bytecode.all[bytecode.all.size()-2] = O_IndexLocalLiteral8;
 		for( unsigned int i=1; i<addMe.all.size(); ++i )
 		{
-			bytecode.all += addMe.all[i];	
+			bytecode.all += addMe.all[i];
 		}
 		bytecode.opcodes.clear();
 		bytecode.opcodes += O_IndexLocalLiteral8;
@@ -9583,7 +9647,7 @@ void WRCompilationContext::appendBytecode( WRBytecode& bytecode, WRBytecode& add
 		bytecode.all[bytecode.all.size()-2] = O_IndexGlobalLiteral8;
 		for( unsigned int i=1; i<addMe.all.size(); ++i )
 		{
-			bytecode.all += addMe.all[i];	
+			bytecode.all += addMe.all[i];
 		}
 		bytecode.opcodes.clear();
 		bytecode.opcodes += O_IndexGlobalLiteral8;
@@ -9764,7 +9828,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 {
 	WRValue& value = ex.value;
 	WRstr& token = ex.token;
-	
+
 	if ( m_loadedToken.size() || (m_loadedValue.type != WR_REF) )
 	{
 		token = m_loadedToken;
@@ -9777,7 +9841,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 		value.p2 = INIT_AS_REF;
 
 		ex.spaceBefore = (m_pos < m_sourceLen) && isspace(m_source[m_pos]);
-	
+
 		do
 		{
 			if ( m_pos >= m_sourceLen )
@@ -9785,7 +9849,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 				m_EOF = true;
 				return false;
 			}
-			
+
 		} while( isspace(m_source[m_pos++]) );
 
 		token = m_source[m_pos - 1];
@@ -9805,7 +9869,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 				{
 					continue;
 				}
-				
+
 				m_pos += len - 1;
 				token = c_operations[t].token;
 				goto foundMacroToken;
@@ -9872,7 +9936,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 		else
 		{
 			m_LastParsedLabel = false;
-		
+
 			if ( token[0] == '=' )
 			{
 				if ( (m_pos < m_sourceLen) && m_source[m_pos] == '=' )
@@ -9998,7 +10062,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 				bool single = token[0] == '\'';
 				token.clear();
 				m_quoted = true;
-				
+
 				do
 				{
 					if (m_pos >= m_sourceLen)
@@ -10103,7 +10167,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 			else if ( token[0] == '/' ) // might be a comment
 			{
 				if ( m_pos < m_sourceLen )
-				{	
+				{
 					if ( !isspace(m_source[m_pos]) )
 					{
 						if ( m_source[m_pos] == '/' )
@@ -10128,8 +10192,8 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 							token += '=';
 							++m_pos;
 						}
-					}					
-					//else // bare '/' 
+					}
+					//else // bare '/'
 				}
 			}
 			else if ( isdigit(token[0])
@@ -10263,7 +10327,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 			}
 			else if ( token[0] == ':' && isspace(m_source[m_pos]) )
 			{
-				
+
 			}
 			else if ( isalpha(token[0]) || token[0] == '_' || token[0] == ':' ) // must be a label
 			{
@@ -10286,7 +10350,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 							m_pos ++;
 							continue;
 						}
-						
+
 						if (!isalnum(m_source[m_pos]) && m_source[m_pos] != '_' )
 						{
 							break;
@@ -10312,7 +10376,7 @@ bool WRCompilationContext::getToken( WRExpressionContext& ex, const char* expect
 		}
 
 foundMacroToken:
-	
+
 		ex.spaceAfter = (m_pos < m_sourceLen) && isspace(m_source[m_pos]);
 	}
 
@@ -10372,7 +10436,7 @@ int WRGCObject::init( const unsigned int size, const WRGCObjectType type, bool c
 			return 0;
 		}
 #endif
-		
+
 		if ( clear )
 		{
 			memset( m_SCdata, 0, ret );
@@ -10543,7 +10607,7 @@ tryAgain:
 
 		newSize *= sizeof(WRValue);
 		newSize += sizeof(WRGCBase);
-	
+
 		int total = newMod*sizeof(uint32_t) + newSize;
 		if ( sizeAllocated )
 		{
@@ -10602,7 +10666,7 @@ tryAgain:
 
 		base->m_nextGC = m_nextGC;
 		m_nextGC = base;
-		
+
 		WRValue* newValues = (WRValue*)(base + 1);
 
 		uint32_t* oldHashTable = m_hashTable;
@@ -10679,24 +10743,8 @@ SOFTWARE.
 #include "wrench.h"
 
 //------------------------------------------------------------------------------
-void WRContext::mark( WRValue* s )
+void WRContext::markBase( WRGCBase* svb )
 {
-	if ( IS_CONTAINER_MEMBER(s->xtype) && IS_EXARRAY_TYPE(s->r->xtype) )
-	{
-		// we don't mark this type, but we might mark it's target
-		mark( s->r );
-		return;
-	}
-
-	if ( !IS_EXARRAY_TYPE(s->xtype) || (s->va->m_flags & GCFlag_Marked) )
-	{
-		return;
-	}
-
-	assert( !IS_RAW_ARRAY(s->xtype) );
-
-	WRGCBase* svb = s->vb;
-
 	if ( svb->m_type == SV_VALUE )
 	{
 		WRValue* top = ((WRGCObject*)svb)->m_Vdata + ((WRGCObject*)svb)->m_size;
@@ -10732,6 +10780,26 @@ void WRContext::mark( WRValue* s )
 }
 
 //------------------------------------------------------------------------------
+void WRContext::mark( WRValue* s )
+{
+	if ( IS_CONTAINER_MEMBER(s->xtype) && IS_EXARRAY_TYPE(s->r->xtype) )
+	{
+		// we don't mark this type, but we might mark it's target
+		mark( s->r );
+		return;
+	}
+
+	if ( !IS_EXARRAY_TYPE(s->xtype) || (s->va->m_flags & GCFlag_Marked) )
+	{
+		return;
+	}
+
+	assert( !IS_RAW_ARRAY(s->xtype) );
+
+	markBase( s->vb );
+}
+
+//------------------------------------------------------------------------------
 void WRContext::gc( WRValue* stackTop )
 {
 	if ( allocatedMemoryHint < w->allocatedMemoryLimit )
@@ -10740,11 +10808,22 @@ void WRContext::gc( WRValue* stackTop )
 	}
 
 	allocatedMemoryHint = 0;
-	
+
+	// mark permenants
+	if ( stackTop ) // zero stacktop means collect EVERYTHING
+	{
+		for( WRGCBase* a=svAllocated; a; a = a->m_nextGC )
+		{
+			if ( (a->m_flags & GCFlag_Perm) && !(a->m_flags & GCFlag_Marked) )
+			{
+				markBase( a );
+			}
+		}
+	}
+
 	// mark stack
 	for( WRValue* s=stack; s<stackTop; ++s)
 	{
-		// an array in the chain?
 		mark( s );
 	}
 
@@ -10859,7 +10938,7 @@ inline bool wr_getNextValue( WRValue* iterator, WRValue* value, WRValue* key )
 			if ( iterator->va->m_hashTable[element] != WRENCH_NULL_HASH )
 			{
 				iterator->p2 = INIT_AS_ITERATOR | ENCODE_ARRAY_ELEMENT_TO_P2(element+1);
-				
+
 				element <<= 1;
 
 				value->p2 = INIT_AS_REF;
@@ -10869,14 +10948,14 @@ inline bool wr_getNextValue( WRValue* iterator, WRValue* value, WRValue* key )
 					key->p2 = INIT_AS_REF;
 					key->r = iterator->va->m_Vdata + element + 1;
 				}
-				
+
 				return true;
 			}
 		}
-		
+
 		return false;
 	}
-	else 
+	else
 	{
 		if ( element >= iterator->va->m_size )
 		{
@@ -10908,6 +10987,72 @@ inline bool wr_getNextValue( WRValue* iterator, WRValue* value, WRValue* key )
 	}
 
 	return true;
+}
+
+//------------------------------------------------------------------------------
+WRValue* wr_newObjectTable( WRContext* context, WRValue* stackTop, const uint8_t* pc, const unsigned char* tableIn )
+{
+	const unsigned char* table;
+	if ( tableIn )
+	{
+		table = tableIn;
+	}
+	else
+	{
+		uint32_t offset = READ_16_FROM_PC(pc);
+		table = context->bottom + offset;
+	}
+
+	if ( tableIn || (table > context->bottom) )
+	{
+		// if unit was called with no arguments from global
+		// level there are no "free" stack entries to
+		// gnab, so create it here, but preserve the
+		// first value
+
+		// NOTE: we are guaranteed to have at least one
+		// value if table > bottom
+		unsigned char count = READ_8_FROM_PC(table++);
+
+		WRValue* register1 = (stackTop + READ_8_FROM_PC(table))->r;
+		WRValue* register2 = (stackTop + READ_8_FROM_PC(table))->r2;
+
+		stackTop->p2 = INIT_AS_STRUCT;
+
+		// table : members in local space
+		// table + 1 : arguments + 1 (+1 to save the calculation below)
+		// table +2/3 : m_mod
+		// table + 4: [static hash table ]
+
+		stackTop->va = context->getSVA( count, SV_VALUE, false );
+
+#ifdef WRENCH_HANDLE_MALLOC_FAIL
+		if ( !stackTop->va )
+		{
+			return 0;
+		}
+#endif
+		stackTop->va->m_ROMHashTable = table + 3;
+
+		stackTop->va->m_mod = READ_16_FROM_PC(table+1);
+
+		WRValue* register0 = stackTop->va->m_Vdata;
+		register0->r = register1;
+		(register0++)->r2 = register2;
+
+		if ( --count > 0 )
+		{
+			memcpy( (char*)register0, stackTop + READ_8_FROM_PC(table) + 1, count*sizeof(WRValue) );
+		}
+
+		context->gc( stackTop + 1 ); // take care of any memory the 'new' allocated
+	}
+	else
+	{
+		stackTop->init();
+	}
+
+	return stackTop;
 }
 
 
@@ -11142,20 +11287,20 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		&&GGCompareGE,
 		&&GGCompareLT,
 		&&GGCompareLE,
-		&&GGCompareEQ, 
-		&&GGCompareNE, 
+		&&GGCompareEQ,
+		&&GGCompareNE,
 
 		&&LLCompareGT,
 		&&LLCompareGE,
 		&&LLCompareLT,
 		&&LLCompareLE,
-		&&LLCompareEQ, 
-		&&LLCompareNE, 
+		&&LLCompareEQ,
+		&&LLCompareNE,
 
 		&&GSCompareEQ,
-		&&LSCompareEQ, 
-		&&GSCompareNE, 
-		&&LSCompareNE, 
+		&&LSCompareEQ,
+		&&GSCompareNE,
+		&&LSCompareNE,
 		&&GSCompareGE,
 		&&LSCompareGE,
 		&&GSCompareLE,
@@ -11165,10 +11310,10 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		&&GSCompareLT,
 		&&LSCompareLT,
 
-		&&GSCompareEQBZ, 
-		&&LSCompareEQBZ, 
-		&&GSCompareNEBZ, 
-		&&LSCompareNEBZ, 
+		&&GSCompareEQBZ,
+		&&LSCompareEQBZ,
+		&&GSCompareNEBZ,
+		&&LSCompareNEBZ,
 		&&GSCompareGEBZ,
 		&&LSCompareGEBZ,
 		&&GSCompareLEBZ,
@@ -11372,11 +11517,11 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		WRContext* import;
 	};
 	register1 = 0;
-	
+
 	WRValue* frameBase = 0;
 	WRState* w = context->w;
 	const unsigned char* table = 0;
-	
+
 	WRValue* globalSpace = (WRValue *)(context + 1);
 
 	union
@@ -11429,7 +11574,7 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		context->yield_pc = 0;
 
 		stackTop = context->yield_stackTop;
-		
+
 		if ( context->yieldArgs )
 		{
 			register0 = stackTop;
@@ -11444,9 +11589,9 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		{
 			++stackTop; // otherwise we expect a return value
 		}
-	
+
 		frameBase = context->yield_frameBase;
-		
+
 		goto yieldContinue;
 	}
 	else
@@ -11463,7 +11608,7 @@ WRValue* wr_callFunction( WRContext* context, WRFunction* function, const WRValu
 		{
 			*stackTop++ = argv[args];
 		}
-		
+
 		pc = context->stopLocation;
 
 		context->gc( stackTop + 1 );
@@ -11480,7 +11625,7 @@ yieldContinue:
 #ifdef WRENCH_JUMPTABLE_INTERPRETER
 
 	FASTCONTINUE;
-	
+
 #else
 
 	for(;;)
@@ -11497,7 +11642,6 @@ yieldContinue:
 
 			CASE(LiteralZero):
 			{
-literalZero:
 				stackTop->p = 0;
 				(stackTop++)->p2 = INIT_AS_INT;
 				CHECK_STACK;
@@ -11515,7 +11659,7 @@ literalZero:
 			{
 				hash = (uint16_t)READ_16_FROM_PC(pc);
 				pc += 2;
-				
+
 				stackTop->va = context->getSVA( hash, SV_CHAR, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 				if ( !stackTop->va )
@@ -11545,7 +11689,7 @@ literalZero:
 					w->err = WR_ERR_library_constant_not_loaded;
 					return 0;
 				}
-				
+
 				(stackTop++)->p2 &= ~INIT_AS_LIB_CONST;
 				pc += 4;
 				CHECK_STACK;
@@ -11567,7 +11711,7 @@ literalZero:
 				(stackTop - 1)->deref().init();
 				FASTCONTINUE;
 			}
-			
+
 			CASE(Yield):
 			{
 				// preserve the calling and stack context so the code
@@ -11631,7 +11775,7 @@ debugReturn:
 										w->err = WR_ERR_struct_not_exported;
 										return 0;
 									}
-									
+
 									table = import->bottom + I->wrf->namespaceOffset;
 									// so this was in service of a new
 									// ObjectTable. no problemo, find
@@ -11647,11 +11791,13 @@ debugReturn:
 									{
 										++stackTop;
 									}
-									
+
 									pc += 3;
-									goto NewObjectTablePastLoad;
+
+									wr_newObjectTable( context, stackTop++, 0, table );
+									goto newObjOut;
 								}
-								
+
 								goto CallFunctionByHash_continue;
 							}
 
@@ -11670,7 +11816,7 @@ debugReturn:
 				// DO care about return value, which will be at the top
 				// of the stack
 CallFunctionByHash_continue:
-				
+
 				if ( args )
 				{
 					stackTop -= (args - 1);
@@ -11680,7 +11826,9 @@ CallFunctionByHash_continue:
 				{
 					++stackTop;
 				}
+
 				CHECK_STACK;
+newObjOut:
 				CONTINUE;
 			}
 
@@ -11731,7 +11879,7 @@ CallFunctionByHashAndPop_continue:
 				function = context->localFunctions + READ_8_FROM_PC(pc++);
 				pc += READ_8_FROM_PC(pc);
 callFunction:
-				
+
 				// rectify arg count?
 				if ( args != function->arguments )
 				{
@@ -11758,14 +11906,14 @@ callFunction:
 					return 0;
 				}
 #endif
-				
+
 				// initialize locals to int zero
 				for( int l=0; l<function->frameSpaceNeeded; ++l )
 				{
 					(stackTop++)->p2 = INIT_AS_INT;
 					stackTop->p = 0;
 				}
-			
+
 				// temp value contains return vector/frame base
 				register0 = stackTop++; // return vector
 				register0->frame = frameBase;
@@ -11801,7 +11949,7 @@ callFunction:
 				}
 
 				register1->lcb( stackTop, args, context );
-				
+
 				pc += 4;
 
 #ifdef WRENCH_COMPACT
@@ -11854,60 +12002,9 @@ callFunction:
 
 			CASE(NewObjectTable):
 			{
-				table = context->bottom + READ_16_FROM_PC(pc);
+				wr_newObjectTable( context, stackTop++, pc, 0 );
 				pc += 2;
-
-				if ( table > context->bottom )
-				{
-NewObjectTablePastLoad:
-					// if unit was called with no arguments from global
-					// level there are no "free" stack entries to
-					// gnab, so create it here, but preserve the
-					// first value
-
-					// NOTE: we are guaranteed to have at least one
-					// value if table > bottom
-					unsigned char count = READ_8_FROM_PC(table++);
-
-					register1 = (stackTop + READ_8_FROM_PC(table))->r;
-					register2 = (stackTop + READ_8_FROM_PC(table))->r2;
-
-					stackTop->p2 = INIT_AS_STRUCT;
-
-					// table : members in local space
-					// table + 1 : arguments + 1 (+1 to save the calculation below)
-					// table +2/3 : m_mod
-					// table + 4: [static hash table ]
-
-					stackTop->va = context->getSVA( count, SV_VALUE, false );
-					
-#ifdef WRENCH_HANDLE_MALLOC_FAIL
-					if ( !stackTop->va )
-					{
-						CONTINUE;
-					}
-#endif
-					stackTop->va->m_ROMHashTable = table + 3;
-					
-					stackTop->va->m_mod = READ_16_FROM_PC(table+1);
-
-					register0 = stackTop->va->m_Vdata;
-					register0->r = register1;
-					(register0++)->r2 = register2;
-
-					if ( --count > 0 )
-					{
-						memcpy( (char*)register0, stackTop + READ_8_FROM_PC(table) + 1, count*sizeof(WRValue) );
-					}
-
-					context->gc(++stackTop); // take care of any memory the 'new' allocated
-				}
-				else
-				{
-					goto literalZero;
-				}
-
-				FASTCONTINUE;
+				CONTINUE;
 			}
 
 			CASE(AssignToObjectTableByHash):
@@ -11918,8 +12015,8 @@ NewObjectTablePastLoad:
 				register1 = --stackTop;
 				register0 = stackTop - 1;
 
-				const unsigned char* table = register0->va->m_ROMHashTable + ((hash % register0->va->m_mod) * 5);
-				
+				table = register0->va->m_ROMHashTable + ((hash % register0->va->m_mod) * 5);
+
 				if ( (uint32_t)READ_32_FROM_PC(table) == hash )
 				{
 					register2 = (((WRValue*)(register0->va->m_data)) + READ_8_FROM_PC(table + 4));
@@ -11930,10 +12027,10 @@ NewObjectTablePastLoad:
 					w->err = WR_ERR_hash_not_found;
 					return 0;
 				}
-				
+
 				CONTINUE;
 			}
-			
+
 			CASE(AssignToObjectTableByOffset):
 			{
 				register1 = --stackTop;
@@ -11960,7 +12057,7 @@ NewObjectTablePastLoad:
 				context->gc( stackTop );
 				CONTINUE;
 			}
-			
+
 			CASE(Remove):
 			{
 				hash = (--stackTop)->getHash();
@@ -11989,7 +12086,7 @@ NewObjectTablePastLoad:
 
 					--va->m_size;
 				}
-				FASTCONTINUE;	
+				FASTCONTINUE;
 			}
 
 			CASE(HashEntryExists):
@@ -11999,8 +12096,8 @@ NewObjectTablePastLoad:
 				register2 = &(register1->deref());
 				register1->p2 = INIT_AS_INT;
 				register1->i = ((register2->xtype == WR_EX_HASH_TABLE) && register2->va->exists(register0->getHash(), false)) ? 1 : 0;
-				
-				FASTCONTINUE;	
+
+				FASTCONTINUE;
 			}
 
 			CASE(PopOne):
@@ -12048,12 +12145,12 @@ NewObjectTablePastLoad:
 				register0->p2 = INIT_AS_FLOAT;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(GlobalStop):
 			{
 				register0 = stackBase - 1;
 				++pc;
-			}			
+			}
 			CASE(Stop):
 			{
 				*stackBase = *(register0 + 1);
@@ -12119,7 +12216,7 @@ NewObjectTablePastLoad:
 			{
 				register0 = &(stackTop - 1)->deref();
 				register1 = register0;
-hashIndexJump:				
+hashIndexJump:
 				stackTop->ui = READ_32_FROM_PC(pc);
 				pc += 4;
 				if ( !EXPECTS_HASH_INDEX(register0->xtype) )
@@ -12158,7 +12255,7 @@ hashIndexJump:
 				register1->r2 = register2;
 
 				FASTCONTINUE;
-			} 
+			}
 
 			CASE(SwapTwoToTop): // accomplish two (or three when optimized) swaps into one instruction
 			{
@@ -12260,7 +12357,7 @@ hashIndexJump:
 				wr_negate[ register0->type ]( register0, register0 );
 				FASTCONTINUE;
 			}
-			
+
 			CASE(IndexLiteral16):
 			{
 				stackTop->i = READ_16_FROM_PC(pc);
@@ -12291,7 +12388,7 @@ indexLiteral:
 				CONTINUE;
 #endif
 			}
-			
+
 			CASE(IndexLocalLiteral8):
 			{
 				register0 = frameBase + READ_8_FROM_PC(pc++);
@@ -12307,7 +12404,7 @@ indexTempLiteralPostLoad:
 				CHECK_STACK;
 				CONTINUE;
 			}
-			
+
 			CASE(IndexGlobalLiteral16):
 			{
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
@@ -12336,7 +12433,7 @@ indexTempLiteralPostLoad:
 				CONTINUE;
 #endif
 			}
-			
+
 			CASE(AssignToGlobalAndPop):
 			{
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
@@ -12465,7 +12562,7 @@ load32ToTemp:
 				pc += 4;
 				CONTINUE;
 			}
-			
+
 			CASE(GPushIterator):
 			{
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
@@ -12495,7 +12592,7 @@ NextIterator:
 				CHECK_FORCE_YIELD;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(Switch):
 			{
 				hash = (--stackTop)->getHash(); // hash has been loaded
@@ -12507,7 +12604,7 @@ NextIterator:
 				}
 
 				hashLoc += 4; // yup, point hashLoc to jump vector
-				
+
 				pc += READ_16_FROM_PC(hashLoc);
 				FASTCONTINUE;
 			}
@@ -12515,7 +12612,7 @@ NextIterator:
 			CASE(SwitchLinear):
 			{
 				hashLocInt = (--stackTop)->getHash(); // the "hashes" were all 0<=h<256
-				
+
 				if ( hashLocInt < READ_8_FROM_PC(pc++) ) // catch selecting > size
 				{
 					hashLoc = pc + (hashLocInt<<1) + 2; // jump to vector
@@ -12545,7 +12642,7 @@ NextIterator:
 				m_unaryPost[ register0->type ]( register0, register0, -1 );
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryRightShiftSkipLoad): { intCall = rightShiftI; goto targetFuncOpSkipLoad; }
 			CASE(BinaryLeftShiftSkipLoad): { intCall = leftShiftI; goto targetFuncOpSkipLoad; }
 			CASE(BinaryAndSkipLoad): { intCall = andI; goto targetFuncOpSkipLoad; }
@@ -12567,9 +12664,9 @@ targetFuncOpSkipLoadAndReg2:
 				CHECK_STACK;
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryMultiplication): { floatCall = multiplicationF; intCall = multiplicationI; goto targetFuncOp; }
-			CASE(BinarySubtraction): { floatCall = subtractionF; intCall = subtractionI; goto targetFuncOp; } 
+			CASE(BinarySubtraction): { floatCall = subtractionF; intCall = subtractionI; goto targetFuncOp; }
 			CASE(BinaryDivision): { floatCall = divisionF; intCall = divisionI; goto targetFuncOp; }
 			CASE(BinaryRightShift): { floatCall = blankF; intCall = rightShiftI; goto targetFuncOp; }
 			CASE(BinaryLeftShift): { floatCall = blankF; intCall = leftShiftI; goto targetFuncOp; }
@@ -12587,8 +12684,8 @@ targetFuncOp:
 				register2 = register0;
 				goto targetFuncOpSkipLoadAndReg2;
 			}
-			
-			
+
+
 			CASE(SubtractAssign): { floatCall = subtractionF; intCall = subtractionI; goto binaryTableOp; }
 			CASE(AddAssign): { floatCall = addF; intCall = wr_addI; goto binaryTableOp; }
 			CASE(MultiplyAssign): { floatCall = multiplicationF; intCall = multiplicationI; goto binaryTableOp; }
@@ -12601,22 +12698,22 @@ targetFuncOp:
 			CASE(LeftShiftAssign):
 			{
 				intCall = leftShiftI;
-binaryTableOpBlankF:	
-				floatCall = blankF; 
-binaryTableOp:	
+binaryTableOpBlankF:
+				floatCall = blankF;
+binaryTableOp:
 				register0 = --stackTop;
 				register1 = stackTop - 1;
 				goto binaryTableOpAndPopCall;
 			}
-			
-			
+
+
 			CASE(Assign):
 			{
 				register0 = --stackTop;
 				register1 = stackTop - 1;
 				goto assignAndPopEx;
 			}
-			
+
 			CASE(SubtractAssignAndPop): { floatCall = subtractionF; intCall = subtractionI; goto binaryTableOpAndPop; }
 			CASE(AddAssignAndPop): { floatCall = addF; intCall = wr_addI; goto binaryTableOpAndPop;	}
 			CASE(MultiplyAssignAndPop): { floatCall = multiplicationF; intCall = multiplicationI; goto binaryTableOpAndPop; }
@@ -12626,10 +12723,10 @@ binaryTableOp:
 			CASE(ANDAssignAndPop): { intCall = andI; goto binaryTableOpAndPopBlankF; }
 			CASE(XORAssignAndPop): { intCall = xorI; goto binaryTableOpAndPopBlankF; }
 			CASE(RightShiftAssignAndPop): { intCall = rightShiftI; goto binaryTableOpAndPopBlankF; }
-			CASE(LeftShiftAssignAndPop): 
+			CASE(LeftShiftAssignAndPop):
 			{
 				intCall = leftShiftI;
-				
+
 binaryTableOpAndPopBlankF:
 				floatCall = blankF;
 binaryTableOpAndPop:
@@ -12640,7 +12737,7 @@ binaryTableOpAndPopCall:
 				wr_FuncAssign[(register0->type<<2)|register1->type]( register0, register1, intCall, floatCall );
 				CONTINUE;
 			}
-			
+
 			CASE(AssignAndPop):
 			{
 				register0 = --stackTop;
@@ -12649,7 +12746,7 @@ assignAndPopEx:
 				wr_assign[(register0->type<<2)|register1->type]( register0, register1 );
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryAdditionAndStoreGlobal) : { floatCall = addF; intCall = wr_addI; goto targetFuncStoreGlobalOp; }
 			CASE(BinarySubtractionAndStoreGlobal): { floatCall = subtractionF; intCall = subtractionI; goto targetFuncStoreGlobalOp; }
 			CASE(BinaryMultiplicationAndStoreGlobal): { floatCall = multiplicationF; intCall = multiplicationI; goto targetFuncStoreGlobalOp; }
@@ -12657,14 +12754,14 @@ assignAndPopEx:
 			{
 				floatCall = divisionF;
 				intCall = divisionI;
-				
+
 targetFuncStoreGlobalOp:
 				register0 = --stackTop;
 				register1 = --stackTop;
 				wr_funcBinary[(register0->type<<2)|register1->type]( register0, register1, globalSpace + READ_8_FROM_PC(pc++), intCall, floatCall );
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryAdditionAndStoreLocal): { floatCall = addF; intCall = wr_addI; goto targetFuncStoreLocalOp; }
 			CASE(BinarySubtractionAndStoreLocal): { floatCall = subtractionF; intCall = subtractionI; goto targetFuncStoreLocalOp; }
 			CASE(BinaryMultiplicationAndStoreLocal): { floatCall = multiplicationF; intCall = multiplicationI; goto targetFuncStoreLocalOp; }
@@ -12672,14 +12769,14 @@ targetFuncStoreGlobalOp:
 			{
 				floatCall = divisionF;
 				intCall = divisionI;
-				
+
 targetFuncStoreLocalOp:
 				register0 = --stackTop;
 				register1 = --stackTop;
 				wr_funcBinary[(register0->type<<2)|register1->type]( register0, register1, frameBase + READ_8_FROM_PC(pc++), intCall, floatCall );
 				CONTINUE;
 			}
-			
+
 			CASE(PreIncrement):
 			{
 				register0 = stackTop - 1;
@@ -12707,7 +12804,7 @@ compactPreDecrement:
 				register0 = --stackTop;
 				goto compactPreIncrement;
 			}
-			
+
 			CASE(PreDecrementAndPop):
 			{
 				register0 = --stackTop;
@@ -12719,7 +12816,7 @@ compactPreDecrement:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactPreIncrement;
 			}
-			
+
 			CASE(DecGlobal):
 			{
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
@@ -12736,7 +12833,7 @@ compactPreDecrement:
 				register0 = frameBase + READ_8_FROM_PC(pc++);
 				goto compactPreDecrement;
 			}
-													
+
 			CASE(BLA):
 			{
 				boolIntCall = CompareANDI;
@@ -12902,7 +12999,7 @@ CompactFGFunc:
 			{
 				boolIntCall = CompareLTI;
 				boolFloatCall = CompareLTF;
-				
+
 compactReturnFuncNormal:
 				register0 = --stackTop;
 compactReturnFuncPostLoad:
@@ -12911,7 +13008,7 @@ compactReturnFuncPostLoad:
 				register1->p2 = INIT_AS_INT;
 				FASTCONTINUE;
 			}
-											  
+
 			CASE(CompareNE):
 			{
 				boolIntCall = CompareEQI;
@@ -12932,7 +13029,7 @@ compactReturnFuncInvertedPostLoad:
 			CASE(GSCompareLT): { register0 = globalSpace + READ_8_FROM_PC(pc++); boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactReturnFuncPostLoad; }
 			CASE(GSCompareGE): { register0 = globalSpace + READ_8_FROM_PC(pc++); boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactReturnFuncInvertedPostLoad; }
 			CASE(GSCompareLE): { register0 = globalSpace + READ_8_FROM_PC(pc++); boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactReturnFuncInvertedPostLoad; }
-							   
+
 			CASE(LSCompareEQ): { register0 = frameBase + READ_8_FROM_PC(pc++); boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactReturnFuncPostLoad; }
 			CASE(LSCompareNE): { register0 = frameBase + READ_8_FROM_PC(pc++); boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactReturnFuncInvertedPostLoad; }
 			CASE(LSCompareGT): { register0 = frameBase + READ_8_FROM_PC(pc++); boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactReturnFuncPostLoad; }
@@ -12944,10 +13041,10 @@ compactReturnFuncInvertedPostLoad:
 			CASE(CompareBGE): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactReturnFuncBInverted; }
 			CASE(CompareBGT): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactBLAPreLoad; }
 			CASE(CompareBLT): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactBLAPreLoad; }
-			CASE(CompareBEQ): 
+			CASE(CompareBEQ):
 			{
 				boolIntCall = CompareEQI;
-				boolFloatCall = CompareEQF; 
+				boolFloatCall = CompareEQF;
 				goto compactBLAPreLoad;
 			}
 
@@ -12964,7 +13061,7 @@ compactReturnFuncBInvertedPostReg1:
 				CHECK_FORCE_YIELD;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(CompareBLE8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactReturnFuncBInverted8; }
 			CASE(CompareBGE8): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactReturnFuncBInverted8; }
 			CASE(CompareBGT8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactBLA8PreLoad; }
@@ -12975,7 +13072,7 @@ compactReturnFuncBInvertedPostReg1:
 				boolFloatCall = CompareEQF;
 				goto compactBLA8PreLoad;
 			}
-			
+
 			CASE(CompareBNE8):
 			{
 				boolIntCall = CompareEQI;
@@ -13044,7 +13141,7 @@ compactReturnCompareNEPost:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GSCompareGEBZ): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareGInverted; }
 			CASE(GSCompareLEBZ): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareGInverted; }
 			CASE(GSCompareNEBZ):
@@ -13055,7 +13152,7 @@ compactCompareGInverted:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactReturnFuncBInvertedPreReg1;
 			}
-			
+
 			CASE(GSCompareEQBZ): { boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactCompareGNormal; }
 			CASE(GSCompareGTBZ): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareGNormal; }
 			CASE(GSCompareLTBZ):
@@ -13067,7 +13164,7 @@ compactCompareGNormal:
 				register1 = --stackTop;
 				goto compactBLA;
 			}
-			
+
 			CASE(LSCompareGEBZ): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareLInverted; }
 			CASE(LSCompareLEBZ): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareLInverted; }
 			CASE(LSCompareNEBZ):
@@ -13079,7 +13176,7 @@ compactCompareLInverted:
 				register1 = --stackTop;
 				goto compactReturnFuncBInvertedPostReg1;
 			}
-			
+
 			CASE(LSCompareEQBZ): { boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactCompareLNormal; }
 			CASE(LSCompareGTBZ): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareLNormal; }
 			CASE(LSCompareLTBZ):
@@ -13091,7 +13188,7 @@ compactCompareLNormal:
 				register1 = --stackTop;
 				goto compactBLA;
 			}
-			
+
 			CASE(GSCompareGEBZ8): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareG8Inverted; }
 			CASE(GSCompareLEBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareG8Inverted; }
 			CASE(GSCompareNEBZ8):
@@ -13102,7 +13199,7 @@ compactCompareG8Inverted:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactReturnFuncBInverted8PreReg1;
 			}
-			
+
 			CASE(GSCompareEQBZ8): { boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactCompareG8Normal; }
 			CASE(GSCompareGTBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareG8Normal; }
 			CASE(GSCompareLTBZ8):
@@ -13113,7 +13210,7 @@ compactCompareG8Normal:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactBLA8PreReg1;
 			}
-			
+
 			CASE(LSCompareGEBZ8): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareL8Inverted; }
 			CASE(LSCompareLEBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareL8Inverted; }
 			CASE(LSCompareNEBZ8):
@@ -13124,7 +13221,7 @@ compactCompareL8Inverted:
 				register0 = frameBase + READ_8_FROM_PC(pc++);
 				goto compactReturnFuncBInverted8PreReg1;
 			}
-			
+
 			CASE(LSCompareEQBZ8): { boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactCompareL8Normal; }
 			CASE(LSCompareGTBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareL8Normal; }
 			CASE(LSCompareLTBZ8):
@@ -13158,7 +13255,7 @@ compactCompareLL:
 				register0 = frameBase + READ_8_FROM_PC(pc++);
 				goto compactBLA;
 			}
-			
+
 			CASE(LLCompareLEBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareLLInv8; }
 			CASE(LLCompareGEBZ8): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareLLInv8; }
 			CASE(LLCompareNEBZ8):
@@ -13176,7 +13273,7 @@ compactCompareLLInv8:
 			{
 				boolIntCall = CompareLTI;
 				boolFloatCall = CompareLTF;
-compactCompareLL8:	
+compactCompareLL8:
 				register1 = frameBase + READ_8_FROM_PC(pc++);
 				register0 = frameBase + READ_8_FROM_PC(pc++);
 				goto compactBLA8;
@@ -13193,7 +13290,7 @@ compactCompareGGInv:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactReturnFuncBInvertedPostReg1;
 			}
-			
+
 			CASE(GGCompareEQBZ): { boolIntCall = CompareEQI; boolFloatCall = CompareEQF; goto compactCompareGG; }
 			CASE(GGCompareGTBZ): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareGG; }
 			CASE(GGCompareLTBZ):
@@ -13205,7 +13302,7 @@ compactCompareGG:
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				goto compactBLA;
 			}
-			
+
 			CASE(GGCompareGEBZ8): { boolIntCall = CompareLTI; boolFloatCall = CompareLTF; goto compactCompareGGInv8; }
 			CASE(GGCompareLEBZ8): { boolIntCall = CompareGTI; boolFloatCall = CompareGTF; goto compactCompareGGInv8; }
 			CASE(GGCompareNEBZ8):
@@ -13229,12 +13326,12 @@ compactCompareGG8:
 				goto compactBLA8;
 			}
 
-			
+
 //-------------------------------------------------------------------------------------------------------------
-#else 
+#else
 //-------------------------------------------------------------------------------------------------------------
 // NON-COMPACT version
-			
+
 			CASE(PostIncrement):
 			{
 				register0 = stackTop - 1;
@@ -13294,7 +13391,7 @@ compactCompareGG8:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GGBinaryMultiplication):
 			{
 				register1 = globalSpace + READ_8_FROM_PC(pc++);
@@ -13322,7 +13419,7 @@ compactCompareGG8:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GGBinaryAddition):
 			{
 				register1 = globalSpace + READ_8_FROM_PC(pc++);
@@ -13335,7 +13432,7 @@ compactCompareGG8:
 			CASE(GLBinaryAddition):
 			{
 				register1 = frameBase + READ_8_FROM_PC(pc++);
-				register0 = globalSpace + READ_8_FROM_PC(pc++); 
+				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				wr_AdditionBinary[(register0->type<<2)|register1->type]( register0, register1, stackTop++ );
 				CHECK_STACK;
 				FASTCONTINUE;
@@ -13350,7 +13447,7 @@ compactCompareGG8:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GGBinarySubtraction):
 			{
 				register1 = globalSpace + READ_8_FROM_PC(pc++);
@@ -13460,7 +13557,7 @@ compactCompareGG8:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(LogicalAnd): { returnFunc = wr_LogicalAND; goto returnFuncNormal; }
 			CASE(LogicalOr): { returnFunc = wr_LogicalOR; goto returnFuncNormal; }
 			CASE(CompareLE): { returnFunc = wr_CompareGT; goto returnFuncInverted; }
@@ -13497,7 +13594,7 @@ returnFuncInvertedPostLoad:
 			CASE(GSCompareLT): { register0 = globalSpace + READ_8_FROM_PC(pc++); returnFunc = wr_CompareLT; goto returnFuncPostLoad; }
 			CASE(GSCompareGE): { register0 = globalSpace + READ_8_FROM_PC(pc++); returnFunc = wr_CompareLT; goto returnFuncInvertedPostLoad; }
 			CASE(GSCompareLE): { register0 = globalSpace + READ_8_FROM_PC(pc++); returnFunc = wr_CompareGT; goto returnFuncInvertedPostLoad; }
-							   
+
 			CASE(LSCompareEQ): { register0 = frameBase + READ_8_FROM_PC(pc++); returnFunc = wr_CompareEQ; goto returnFuncPostLoad; }
 			CASE(LSCompareNE): { register0 = frameBase + READ_8_FROM_PC(pc++); returnFunc = wr_CompareEQ; goto returnFuncInvertedPostLoad; }
 			CASE(LSCompareGT): { register0 = frameBase + READ_8_FROM_PC(pc++); returnFunc = wr_CompareGT; goto returnFuncPostLoad; }
@@ -13519,7 +13616,7 @@ returnFuncBNormal:
 				CHECK_FORCE_YIELD;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(CompareBNE):
 			{
 				returnFunc = wr_CompareEQ;
@@ -13530,7 +13627,7 @@ returnFuncBInverted:
 				CHECK_FORCE_YIELD;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(CompareBLE8): { returnFunc = wr_CompareGT; goto returnFuncBInverted8; }
 			CASE(CompareBGE8): { returnFunc = wr_CompareLT; goto returnFuncBInverted8; }
 			CASE(CompareBGT8): { returnFunc = wr_CompareGT; goto returnFuncBNormal8; }
@@ -13545,7 +13642,7 @@ returnFuncBNormal8:
 				CHECK_FORCE_YIELD;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(CompareBNE8):
 			{
 				returnFunc = wr_CompareEQ;
@@ -13600,7 +13697,7 @@ returnFuncBInverted8:
 				goto returnCompareNEPost;
 			}
 
-			
+
 			CASE(LLCompareGT): { returnFunc = wr_CompareGT; goto returnCompareEQ; }
 			CASE(LLCompareLT): { returnFunc = wr_CompareLT; goto returnCompareEQ; }
 			CASE(LLCompareEQ):
@@ -13615,7 +13712,7 @@ returnCompareEQPost:
 				CHECK_STACK;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(LLCompareGE): { returnFunc = wr_CompareLT; goto returnCompareNE; }
 			CASE(LLCompareLE): { returnFunc = wr_CompareGT; goto returnCompareNE; }
 			CASE(LLCompareNE):
@@ -13632,7 +13729,7 @@ returnCompareNEPost:
 			}
 
 
-			
+
 			CASE(GSCompareGEBZ): { returnFunc = wr_CompareLT; goto CompareGInverted; }
 			CASE(GSCompareLEBZ): { returnFunc = wr_CompareGT; goto CompareGInverted; }
 			CASE(GSCompareNEBZ):
@@ -13644,7 +13741,7 @@ CompareGInverted:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? READ_16_FROM_PC(pc) : 2;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(GSCompareEQBZ): { returnFunc = wr_CompareEQ; goto CompareGNormal; }
 			CASE(GSCompareGTBZ): { returnFunc = wr_CompareGT; goto CompareGNormal; }
 			CASE(GSCompareLTBZ):
@@ -13656,7 +13753,7 @@ CompareGNormal:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : READ_16_FROM_PC(pc);
 				FASTCONTINUE;
 			}
-			
+
 			CASE(LSCompareGEBZ): { returnFunc = wr_CompareLT; goto CompareLInverted; }
 			CASE(LSCompareLEBZ): { returnFunc = wr_CompareGT; goto CompareLInverted; }
 			CASE(LSCompareNEBZ):
@@ -13668,7 +13765,7 @@ CompareLInverted:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? READ_16_FROM_PC(pc) : 2;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(LSCompareEQBZ): { returnFunc = wr_CompareEQ; goto CompareLNormal; }
 			CASE(LSCompareGTBZ): { returnFunc = wr_CompareGT; goto CompareLNormal; }
 			CASE(LSCompareLTBZ):
@@ -13680,7 +13777,7 @@ CompareLNormal:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : READ_16_FROM_PC(pc);
 				FASTCONTINUE;
 			}
-			
+
 			CASE(GSCompareGEBZ8): { returnFunc = wr_CompareLT; goto CompareG8Inverted; }
 			CASE(GSCompareLEBZ8): { returnFunc = wr_CompareGT; goto CompareG8Inverted; }
 			CASE(GSCompareNEBZ8):
@@ -13692,7 +13789,7 @@ CompareG8Inverted:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? (int8_t)READ_8_FROM_PC(pc) : 2;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(GSCompareEQBZ8): { returnFunc = wr_CompareEQ; goto CompareG8Normal; }
 			CASE(GSCompareGTBZ8): { returnFunc = wr_CompareGT; goto CompareG8Normal; }
 			CASE(GSCompareLTBZ8):
@@ -13704,7 +13801,7 @@ CompareG8Normal:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : (int8_t)READ_8_FROM_PC(pc);
 				FASTCONTINUE;
 			}
-			
+
 			CASE(LSCompareGEBZ8): { returnFunc = wr_CompareLT; goto CompareL8Inverted; }
 			CASE(LSCompareLEBZ8): { returnFunc = wr_CompareGT; goto CompareL8Inverted; }
 			CASE(LSCompareNEBZ8):
@@ -13716,7 +13813,7 @@ CompareL8Inverted:
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? (int8_t)READ_8_FROM_PC(pc) : 2;
 				FASTCONTINUE;
 			}
-			
+
 			CASE(LSCompareEQBZ8): { returnFunc = wr_CompareEQ; goto CompareL8Normal; }
 			CASE(LSCompareGTBZ8): { returnFunc = wr_CompareGT; goto CompareL8Normal; }
 			CASE(LSCompareLTBZ8):
@@ -13745,14 +13842,14 @@ CompareLLInv:
 			CASE(LLCompareLTBZ):
 			{
 				returnFunc = wr_CompareLT;
-CompareLL:	
+CompareLL:
 				register1 = frameBase + READ_8_FROM_PC(pc++);
 				register0 = frameBase + READ_8_FROM_PC(pc++);
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : READ_16_FROM_PC(pc);
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(LLCompareGEBZ8): { returnFunc = wr_CompareLT; goto CompareLL8Inv; }
 			CASE(LLCompareLEBZ8): { returnFunc = wr_CompareGT; goto CompareLL8Inv; }
 			CASE(LLCompareNEBZ8):
@@ -13776,7 +13873,7 @@ CompareLL8:
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GGCompareGEBZ): { returnFunc = wr_CompareLT; goto CompareGGInv; }
  		    CASE(GGCompareLEBZ): { returnFunc = wr_CompareGT; goto CompareGGInv; }
 			CASE(GGCompareNEBZ):
@@ -13794,14 +13891,14 @@ CompareGGInv:
 			CASE(GGCompareLTBZ):
 			{
 				returnFunc = wr_CompareLT;
-CompareGG:	
+CompareGG:
 				register1 = globalSpace + READ_8_FROM_PC(pc++);
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : READ_16_FROM_PC(pc);
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(GGCompareGEBZ8): { returnFunc = wr_CompareLT; goto CompareGG8Inv; }
 			CASE(GGCompareLEBZ8): { returnFunc = wr_CompareGT; goto CompareGG8Inv; }
 			CASE(GGCompareNEBZ8):
@@ -13818,14 +13915,14 @@ CompareGG8Inv:
 			CASE(GGCompareLTBZ8):
 			{
 				returnFunc = wr_CompareLT;
-CompareGG8:	
+CompareGG8:
 				register1 = globalSpace + READ_8_FROM_PC(pc++);
 				register0 = globalSpace + READ_8_FROM_PC(pc++);
 				pc += returnFunc[(register0->type<<2)|register1->type]( register0, register1 ) ? 2 : (int8_t)READ_8_FROM_PC(pc);
 				FASTCONTINUE;
 			}
 
-			
+
 			CASE(BinaryRightShiftSkipLoad): { targetFunc = wr_RightShiftBinary; goto targetFuncOpSkipLoad; }
 			CASE(BinaryLeftShiftSkipLoad): { targetFunc = wr_LeftShiftBinary; goto targetFuncOpSkipLoad; }
 			CASE(BinaryAndSkipLoad): { targetFunc = wr_ANDBinary; goto targetFuncOpSkipLoad; }
@@ -13839,7 +13936,7 @@ targetFuncOpSkipLoad:
 				CHECK_STACK;
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryMultiplication): { targetFunc = wr_MultiplyBinary; goto targetFuncOp; }
 			CASE(BinarySubtraction): { targetFunc = wr_SubtractBinary; goto targetFuncOp; }
 			CASE(BinaryDivision): { targetFunc = wr_DivideBinary; goto targetFuncOp; }
@@ -13865,7 +13962,7 @@ targetFuncOp:
 #endif
 				CONTINUE;
 			}
-			
+
 			CASE(SubtractAssign): { voidFunc = wr_SubtractAssign; goto binaryTableOp; }
 			CASE(AddAssign): { voidFunc = wr_AddAssign; goto binaryTableOp; }
 			CASE(ModAssign): { voidFunc = wr_ModAssign; goto binaryTableOp; }
@@ -13879,7 +13976,7 @@ targetFuncOp:
 			CASE(Assign):
 			{
 				voidFunc = wr_assign;
-binaryTableOp:	
+binaryTableOp:
 				register0 = --stackTop;
 				register1 = stackTop - 1;
 				voidFunc[(register0->type<<2)|register1->type]( register0, register1 );
@@ -13892,7 +13989,7 @@ binaryTableOp:
 #endif
 				CONTINUE;
 			}
-			
+
 			CASE(SubtractAssignAndPop): { voidFunc = wr_SubtractAssign; goto binaryTableOpAndPop; }
 			CASE(AddAssignAndPop): { voidFunc = wr_AddAssign; goto binaryTableOpAndPop; }
 			CASE(ModAssignAndPop): { voidFunc = wr_ModAssign; goto binaryTableOpAndPop; }
@@ -13906,7 +14003,7 @@ binaryTableOp:
 			CASE(AssignAndPop):
 			{
 				voidFunc = wr_assign;
-				
+
 binaryTableOpAndPop:
 				register0 = --stackTop;
 				register1 = --stackTop;
@@ -13920,14 +14017,14 @@ binaryTableOpAndPop:
 #endif
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryAdditionAndStoreGlobal) : { targetFunc = wr_AdditionBinary; goto targetFuncStoreGlobalOp; }
 			CASE(BinarySubtractionAndStoreGlobal): { targetFunc = wr_SubtractBinary; goto targetFuncStoreGlobalOp; }
 			CASE(BinaryMultiplicationAndStoreGlobal): { targetFunc = wr_MultiplyBinary; goto targetFuncStoreGlobalOp; }
 			CASE(BinaryDivisionAndStoreGlobal):
 			{
 				targetFunc = wr_DivideBinary;
-				
+
 targetFuncStoreGlobalOp:
 				register1 = --stackTop;
 				register0 = --stackTop;
@@ -13944,14 +14041,14 @@ targetFuncStoreGlobalOp:
 #endif
 				CONTINUE;
 			}
-			
+
 			CASE(BinaryAdditionAndStoreLocal): { targetFunc = wr_AdditionBinary; goto targetFuncStoreLocalOp; }
 			CASE(BinarySubtractionAndStoreLocal): { targetFunc = wr_SubtractBinary; goto targetFuncStoreLocalOp; }
 			CASE(BinaryMultiplicationAndStoreLocal): { targetFunc = wr_MultiplyBinary; goto targetFuncStoreLocalOp; }
 			CASE(BinaryDivisionAndStoreLocal):
 			{
 				targetFunc = wr_DivideBinary;
-				
+
 targetFuncStoreLocalOp:
 				register1 = --stackTop;
 				register0 = --stackTop;
@@ -13969,7 +14066,7 @@ targetFuncStoreLocalOp:
 				CONTINUE;
 			}
 
-			
+
 //-------------------------------------------------------------------------------------------------------------
 #endif//-------------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------------------
@@ -14107,7 +14204,7 @@ float* WrenchValue::Float()
 //------------------------------------------------------------------------------
 WRValue* WrenchValue::asArrayMember( const int index )
 {
-	if ( !IS_ARRAY(m_value->xtype) ) 
+	if ( !IS_ARRAY(m_value->xtype) )
 	{
 		// then make it one!
 		m_value->va = m_context->getSVA( index + 1, SV_VALUE, true );
@@ -14136,7 +14233,7 @@ WRState* wr_newState( int stackSize )
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !w ) { return 0; }
 #endif
-																		   
+
 	memset( (unsigned char*)w, 0, sizeof(WRState) );
 	w->globalRegistry.growHash( WRENCH_NULL_HASH, 0 );
 
@@ -14220,7 +14317,7 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 
 	int globals = READ_8_FROM_PC( block );
 	int localFuncs = READ_8_FROM_PC(block  + 1); // how many?
-	
+
 	int needed = sizeof(WRContext) // class
 				 + (globals * sizeof(WRValue))  // globals
 				 + (localFuncs * sizeof(WRFunction)) // functions
@@ -14234,7 +14331,7 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 		return 0;
 	}
 #endif
-	
+
 	memset((char*)C, 0, needed);
 	C->registry.growHash( WRENCH_NULL_HASH, 0 );
 
@@ -14242,11 +14339,11 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 	C->localFunctions = (WRFunction *)((uint8_t *)(C + 1) + (globals * sizeof(WRValue)));
 
 	C->globals = globals;
-	
+
 	C->stack = stack ? stack : (WRValue *)(C->localFunctions + localFuncs);
 
 	C->flags |= takeOwnership ? WRC_OwnsMemory : 0;
-	
+
 	C->w = w;
 
 	C->bottom = block;
@@ -14269,7 +14366,7 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 
 	if ( compilerFlags & WR_EMBED_SOURCE_CODE )
 	{
-		C->codeStart += 4 + READ_32_FROM_PC( C->codeStart );		
+		C->codeStart += 4 + READ_32_FROM_PC( C->codeStart );
 	}
 
 
@@ -14285,7 +14382,7 @@ WRContext* wr_createContext( WRState* w, const unsigned char* block, const int b
 		C->localFunctions[i].arguments = READ_8_FROM_PC( block + ++pos );
 		C->localFunctions[i].frameSpaceNeeded = READ_8_FROM_PC( block + ++pos );
 		C->localFunctions[i].frameBaseAdjustment = READ_8_FROM_PC( block + ++pos );
-		
+
 		++pos;
 
 		C->registry.getAsRawValueHashTable(C->localFunctions[i].hash)->wrf = C->localFunctions + i;
@@ -14304,7 +14401,7 @@ WRContext* wr_import( WRContext* context, const unsigned char* block, const int 
 	}
 
 	if ( !wr_callFunction(import, (WRFunction*)0) )
-	{ 
+	{
 		// imported context may not yield
 		wr_destroyContext( context );
 		return 0;
@@ -14343,7 +14440,7 @@ WRValue* wr_executeContext( WRContext* context )
 		S->err = WR_ERR_execute_function_zero_called_more_than_once;
 		return 0;
 	}
-	
+
 	return wr_callFunction( context, (WRFunction*)0 );
 }
 
@@ -14604,11 +14701,17 @@ bool WRValue::isHashTable( int* len ) const
 	return false;
 }
 
+bool WRValue::isStruct() const
+{
+	return IS_STRUCT( deref().xtype );
+}
+
+
 //------------------------------------------------------------------------------
-WRValue* WRValue::indexArray( WRContext* context, const uint32_t index, const bool create )
+WRValue* WRValue::indexArray( WRContext* context, const uint32_t index, const bool create ) const
 {
 	WRValue& V = deref();
-	
+
 	if ( !IS_ARRAY(V.xtype) || V.va->m_type != SV_VALUE )
 	{
 		if ( !create )
@@ -14635,7 +14738,7 @@ WRValue* WRValue::indexArray( WRContext* context, const uint32_t index, const bo
 		{
 			return 0;
 		}
-		
+
 		wr_growValueArray( V.va, index );
 		context->allocatedMemoryHint += index * ((V.va->m_type == SV_CHAR) ? 1 : sizeof(WRValue));
 	}
@@ -14644,10 +14747,17 @@ WRValue* WRValue::indexArray( WRContext* context, const uint32_t index, const bo
 }
 
 //------------------------------------------------------------------------------
-WRValue* WRValue::indexHash( WRContext* context, const uint32_t hash, const bool create )
+WRValue* WRValue::indexStruct( const char* label ) const
 {
 	WRValue& V = deref();
-	
+
+	return IS_STRUCT(V.xtype) ?	wr_valueFromConfirmedStruct( &V, wr_hashStr(label) ) : 0;
+}
+
+//------------------------------------------------------------------------------
+WRValue* WRValue::indexHash( WRContext* context, const uint32_t hash, const bool create ) const
+{
+	WRValue& V = deref();
 	if ( !IS_HASH_TABLE(V.xtype) )
 	{
 		if ( !create )
@@ -14663,7 +14773,7 @@ WRValue* WRValue::indexHash( WRContext* context, const uint32_t hash, const bool
 			return &V;
 		}
 #endif
-		
+
 		V.p2 = INIT_AS_HASH_TABLE;
 	}
 
@@ -14674,7 +14784,7 @@ WRValue* WRValue::indexHash( WRContext* context, const uint32_t hash, const bool
 void* WRValue::array( unsigned int* len, char arrayType ) const
 {
 	WRValue& V = deref();
-	
+
 	if ( (V.xtype != WR_EX_ARRAY) || (V.va->m_type != arrayType) )
 	{
 		return 0;
@@ -14702,7 +14812,7 @@ int wr_technicalAsStringEx( char* string, const WRValue* value, size_t pos, size
 	{
 		return maxLen - 1;
 	}
-	
+
 	if ( value->type == WR_REF )
 	{
 		strncpy( (string + pos), "ref: ", maxLen - pos );
@@ -14717,7 +14827,7 @@ int wr_technicalAsStringEx( char* string, const WRValue* value, size_t pos, size
 	{
 		return pos + (valuesInHex ? snprintf(string + pos, maxLen - pos, "0x%08lX", (unsigned long int)value->ui )
 			: snprintf(string + pos, maxLen - pos, "%ld", (long int)value->i));
-				
+
 	}
 	else if ( value->xtype == WR_EX_ARRAY )
 	{
@@ -14767,7 +14877,7 @@ int wr_technicalAsStringEx( char* string, const WRValue* value, size_t pos, size
 	else if ( value->xtype == WR_EX_HASH_TABLE )
 	{
 		pos += snprintf( string + pos, maxLen - pos, "{ " );
-		
+
 		bool first = true;
 		for( int32_t element=0; element<value->va->m_mod; ++element )
 		{
@@ -14859,7 +14969,7 @@ char* WRValue::asString( char* string, unsigned int maxLen, unsigned int* strLen
 	}
 
 	unsigned int len = 0;
-	
+
 	if ( type == WR_FLOAT )
 	{
 		len = wr_ftoa( f, string, maxLen );
@@ -14880,14 +14990,14 @@ char* WRValue::asString( char* string, unsigned int maxLen, unsigned int* strLen
 	}
 	else
 	{
-		return singleValue().asString( string, maxLen, strLen ); // never give up, never surrender	
+		return singleValue().asString( string, maxLen, strLen ); // never give up, never surrender
 	}
 
 	if ( strLen )
 	{
 		*strLen = len;
 	}
-	
+
 	return string;
 }
 
@@ -15069,22 +15179,55 @@ WRValue& wr_makeString( WRContext* context, WRValue* val, const char* data, cons
 }
 
 //------------------------------------------------------------------------------
-void wr_makeContainer( WRValue* val, const uint16_t sizeHint )
+WRValue& wr_makeContainer( WRValue* val, const uint16_t sizeHint )
 {
 	val->va = (WRGCObject*)g_malloc( sizeof(WRGCObject) );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !val->va )
 	{
 		val->init();
-		return;
+		return *val;
 	}
 #endif
 	memset( (unsigned char*)val->va, 0, sizeof(WRGCObject) );
 
 	val->va->init( sizeHint, SV_HASH_TABLE, false);
-	
+
 	val->va->m_flags |= GCFlag_NoContext;
 	val->p2 = INIT_AS_HASH_TABLE;
+	return *val;
+}
+
+//------------------------------------------------------------------------------
+WRValue* wr_instanceStruct( WRValue* val, WRContext* context, const char* name, const WRValue* argv, const int argn )
+{
+	uint32_t signature = wr_hashStr( name );
+
+	for( int i=0; i<context->numLocalFunctions; ++i )
+	{
+		if ( context->localFunctions[i].hash == signature  )
+		{
+			if ( context->localFunctions[i].namespaceOffset )
+			{
+				wr_callFunction( context, signature, argv, argn );
+
+				WRValue* ret = wr_newObjectTable( context,
+												context->stack + (context->stackOffset + 1),
+												0,
+												context->bottom + context->localFunctions[i].namespaceOffset );
+				if (ret)
+				{
+					ret->vb->m_flags |= GCFlag_Perm;
+					*val = *ret;
+					return val;
+				}
+			}
+
+			break;
+		}
+	}
+
+	return 0;
 }
 
 //------------------------------------------------------------------------------
@@ -15121,7 +15264,7 @@ WRValue* wr_addToContainerEx( const char* name, WRValue* container )
 
 	key.va->m_nextGC = container->va->m_nextGC;
 	container->va->m_nextGC = key.va;
-	
+
 	key.va->init( len, SV_CHAR, false);
 
 	key.va->m_flags |= GCFlag_NoContext;
@@ -15200,7 +15343,7 @@ WRValue* wr_getValueFromContainer( WRValue const& container, const char* name )
 #ifndef WRENCH_WITHOUT_COMPILER
 
 //------------------------------------------------------------------------------
-const char* c_opcodeName[] = 
+const char* c_opcodeName[] =
 {
 	"Yield",
 
@@ -15290,20 +15433,20 @@ const char* c_opcodeName[] =
 	"GGCompareGE",
 	"GGCompareLT",
 	"GGCompareLE",
-	"GGCompareEQ", 
-	"GGCompareNE", 
+	"GGCompareEQ",
+	"GGCompareNE",
 
 	"LLCompareGT",
 	"LLCompareGE",
 	"LLCompareLT",
 	"LLCompareLE",
-	"LLCompareEQ", 
-	"LLCompareNE", 
+	"LLCompareEQ",
+	"LLCompareNE",
 
 	"GSCompareEQ",
-	"LSCompareEQ", 
-	"GSCompareNE", 
-	"LSCompareNE", 
+	"LSCompareEQ",
+	"GSCompareNE",
+	"LSCompareNE",
 	"GSCompareGE",
 	"LSCompareGE",
 	"GSCompareLE",
@@ -15313,10 +15456,10 @@ const char* c_opcodeName[] =
 	"GSCompareLT",
 	"LSCompareLT",
 
-	"GSCompareEQBZ", 
-	"LSCompareEQBZ", 
-	"GSCompareNEBZ", 
-	"LSCompareNEBZ", 
+	"GSCompareEQBZ",
+	"LSCompareEQBZ",
+	"GSCompareNEBZ",
+	"LSCompareNEBZ",
 	"GSCompareGEBZ",
 	"LSCompareGEBZ",
 	"GSCompareLEBZ",
@@ -15602,7 +15745,7 @@ bool wr_serializeEx( WRValueSerializer& serializer, const WRValue& val )
 	char temp;
 	uint16_t temp16;
 	uint32_t temp32;
-	
+
 	const WRValue& value = val.deref();
 
 	serializer.write( &(temp = value.type), 1 );
@@ -15670,7 +15813,7 @@ bool wr_serializeEx( WRValueSerializer& serializer, const WRValue& val )
 
 					return true;
 				}
-				
+
 				default: break;
 			}
 		}
@@ -15721,7 +15864,7 @@ bool wr_deserializeEx( WRValue& value, WRValueSerializer& serializer, WRContext*
 
 					temp16 = wr_x16( temp16 );
 					value.p2 = INIT_AS_ARRAY;
-					
+
 					switch( (uint8_t)temp )
 					{
 						case SV_CHAR:
@@ -15774,7 +15917,7 @@ bool wr_deserializeEx( WRValue& value, WRValueSerializer& serializer, WRContext*
 					}
 
 					temp16 = wr_x16( temp16 );
-					
+
 					value.va = context->getSVA( temp16 - 1, SV_HASH_TABLE, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 					if ( !value.va )
@@ -15809,7 +15952,7 @@ bool wr_deserializeEx( WRValue& value, WRValueSerializer& serializer, WRContext*
 							value.va->m_hashTable[i] = value.va->m_Vdata[(i<<1)+1].getHash();
 						}
 					}
-					
+
 					return true;
 				}
 
@@ -15927,25 +16070,25 @@ void wr_formatGCObject( WRGCObject const& obj, WRstr& out )
 	{
 		case SV_VALUE:
 		{
-			out.appendFormat( "SV_VALUE : size[%d]", obj.m_size ); 
+			out.appendFormat( "SV_VALUE : size[%d]", obj.m_size );
 			break;
 		}
-		
+
 		case SV_CHAR:
 		{
-			out.appendFormat( "SV_CHAR : size[%d]", obj.m_size ); 
+			out.appendFormat( "SV_CHAR : size[%d]", obj.m_size );
 			break;
 		}
-		
+
 		case SV_HASH_TABLE:
 		{
-			out.appendFormat( "SV_HASH_TABLE : mod[%d] size[%d] ", obj.m_mod, obj.m_size ); 
+			out.appendFormat( "SV_HASH_TABLE : mod[%d] size[%d] ", obj.m_mod, obj.m_size );
 			break;
 		}
-		
+
 		case SV_VOID_HASH_TABLE:
 		{
-			out.appendFormat( "SV_VOID_HASH_TABLE : @[%p] mod[%d] ", obj.m_ROMHashTable, obj.m_mod ); 
+			out.appendFormat( "SV_VOID_HASH_TABLE : @[%p] mod[%d] ", obj.m_ROMHashTable, obj.m_mod );
 			break;
 		}
 	}
@@ -15955,7 +16098,7 @@ void wr_formatGCObject( WRGCObject const& obj, WRstr& out )
 void wr_formatStackEntry( const WRValue* v, WRstr& out )
 {
 	out.appendFormat( "%p: ", v );
-	
+
 	switch( v->type )
 	{
 		default:
@@ -15963,7 +16106,7 @@ void wr_formatStackEntry( const WRValue* v, WRstr& out )
 			out.appendFormat( "frame [0x%08X]:[0x%08X]\n", v->p, v->p2 );
 			break;
 		}
-		
+
 		case WR_INT:
 		{
 			out.appendFormat( "Int [%d]\n", v->i );
@@ -16012,7 +16155,7 @@ void wr_formatStackEntry( const WRValue* v, WRstr& out )
 //					out.appendFormat( "EX:CONTAINER_MEMBER element[%d] of[%p]\n", DECODE_ARRAY_ELEMENT_FROM_P2(v->p2), v->r );
 					break;
 				}
-				
+
 				case WR_EX_ARRAY:
 				{
 					// todo- decode va
@@ -16027,7 +16170,7 @@ void wr_formatStackEntry( const WRValue* v, WRstr& out )
 					out.appendFormat( "EX:STRUCT\n" );
 					break;
 				}
-				
+
 				case WR_EX_HASH_TABLE:
 				{
 					out.appendFormat( "EX:HASH_TABLE :" );
@@ -16048,7 +16191,7 @@ void wr_formatStackEntry( const WRValue* v, WRstr& out )
 void wr_stackDump( const WRValue* bottom, const WRValue* top, WRstr& out )
 {
 	out.clear();
-	
+
 	for( const WRValue* v=bottom; v<top; ++v)
 	{
 		out.appendFormat( "[%d] ", (int)(top - v) );
@@ -16131,7 +16274,7 @@ void WRDebugClientInterface::load( const uint8_t* byteCode, const int size )
 }
 
 //------------------------------------------------------------------------------
-void WRDebugClientInterface::run( const int toLine ) 
+void WRDebugClientInterface::run( const int toLine )
 {
 	I->m_scratchContext->gc(0);
 	I->m_callstackDirty = true;
@@ -16151,22 +16294,22 @@ bool WRDebugClientInterface::getSourceCode( const char** data, int* len )
 		I->m_comm->send( WrenchPacket(WRD_RequestSourceBlock) );
 
 		WrenchPacketScoped r( I->getPacket() );
-		
+
 		if ( !r || r.packet->_type != WRD_ReplySource )
 		{
 			return false;
 		}
-		
+
 		I->m_sourceBlockLen = r.packet->payloadSize();
 		I->m_sourceBlock = (char*)g_malloc( r.packet->payloadSize() + 1 );
-		
+
 		memcpy( I->m_sourceBlock, r.packet->payload(), r.packet->payloadSize() );
 		I->m_sourceBlock[ r.packet->payloadSize() ] = 0;
 	}
-	
+
 	*data = I->m_sourceBlock;
 	*len = I->m_sourceBlockLen;
-	
+
 	return true;
 }
 
@@ -16231,7 +16374,7 @@ const char* WRDebugClientInterface::getValueLabel( const int index, const int de
 	{
 		return 0;
 	}
-		
+
 	int i = 0;
 	for( WrenchSymbol* sym = func->vars->first(); sym; sym = func->vars->next() )
 	{
@@ -16256,7 +16399,7 @@ bool WRDebugClientInterface::getStackDump( char* out, const unsigned int maxOut 
 	}
 
 	strncpy( out, (const char*)r.packet->payload(), maxOut < r.packet->payloadSize() ? maxOut : r.packet->payloadSize() );
-	
+
 	return true;
 }
 
@@ -16423,9 +16566,9 @@ WRContext* wr_import( WRContext* context, const unsigned char* block, const int 
 void wr_disassemble( const uint8_t* bytecode, const unsigned int len, char** out, unsigned int* outLen )
 {
 	WRstr listing;
-	
+
 	WRState* w = wr_newState();
-	
+
 	WRContext* context = wr_createContext( w, bytecode, len, false );
 	if ( !context )
 	{
@@ -16627,7 +16770,7 @@ WRContext* WRDebugServerInterface::loadBytes( const uint8_t* bytes, const int le
 	}
 
 	ret->debugInterface = this;
-	
+
 	I->m_steppingOverReturnVector = 0;
 	I->m_lineSteps = 0;
 	I->m_stepOverDepth = -1;
@@ -16638,9 +16781,9 @@ WRContext* WRDebugServerInterface::loadBytes( const uint8_t* bytes, const int le
 	I->m_firstCall = true;
 	I->m_stepOut = false;
 	I->m_halted = false;
- 	
+
 	const uint8_t* code = bytes + 2;
-	
+
 	I->m_compilerFlags = READ_8_FROM_PC( code++ );
 
 	// skip over function signatures
@@ -16712,13 +16855,13 @@ bool WRDebugServerInterfacePrivate::codewordEncountered( const uint8_t* pc, uint
 			m_halted = true;
 			return false;
 		}
-		
+
 		if ( (codeword & WRD_PayloadMask) == WRD_ExternalFunction )
 		{
 			// no need for bookkeeping, just skip it
 			return false;
 		}
-		
+
 		if ( m_stepOverDepth >= 0 ) // track stepping over/into functions
 		{
 			++m_stepOverDepth;
@@ -16734,7 +16877,7 @@ bool WRDebugServerInterfacePrivate::codewordEncountered( const uint8_t* pc, uint
 		WRFunction* func = m_context->localFunctions + (entry->thisUnitIndex - 1); // unit '0' is the global unit
 		entry->arguments = func->arguments;
 		entry->locals = func->frameSpaceNeeded;
-		
+
 		//printf( "Calling[%d] @ line[%d] stack[%d]\n", m_status.onFunction, m_status.onLine, (int)(stackTop - m_context->w->stack) );
 	}
 	else if ( type == WRD_Return )
@@ -16746,7 +16889,7 @@ bool WRDebugServerInterfacePrivate::codewordEncountered( const uint8_t* pc, uint
 			--m_stepOverDepth;
 		}
 	}
-	
+
 	return false;
 }
 
@@ -16767,7 +16910,7 @@ void WRDebugServerInterfacePrivate::clearBreakpoint( const int bp )
 WrenchPacket* WRDebugServerInterfacePrivate::processPacket( WrenchPacket* packet )
 {
 	WrenchPacket* reply = 0;
-	
+
 	switch( packet->_type )
 	{
 		case WRD_RequestStepOver:
@@ -16783,7 +16926,7 @@ WrenchPacket* WRDebugServerInterfacePrivate::processPacket( WrenchPacket* packet
 			m_stepOverDepth = -1;
 			goto WRDRun;
 		}
-		
+
 		case WRD_Run:
 		{
 WRDRun:
@@ -16796,11 +16939,11 @@ WRDRun:
 			m_stopOnLine = packet->param1;
 
 			if ( m_firstCall )
-			{ 
+			{
 				m_firstCall = false;
-				
+
 				m_callStack->clear();
-				
+
 				WrenchCallStackEntry* stack = m_callStack->addTail();
 				memset( (char*)stack, 0, sizeof(WrenchCallStackEntry) );
 				stack->locals = m_context->globals;
@@ -16828,9 +16971,9 @@ WRDRun:
 					m_externalCodeBlock = (uint8_t*)g_malloc( size );
 					m_externalCodeBlockSize = size;
 				}
-				
+
 				memcpy( m_externalCodeBlock, packet->payload(), size );
-				
+
 				m_parent->loadBytes( m_externalCodeBlock, m_externalCodeBlockSize );
 			}
 			else
@@ -16863,7 +17006,7 @@ WRDRun:
 				}
 				*reply->payload( i ) = 0;
 			}
-			
+
 			break;
 		}
 
@@ -16886,8 +17029,8 @@ WRDRun:
 				{
 					*reply->payload( i ) = (uint8_t)READ_8_FROM_PC( m_symbolBlock + i );
 				}
-			}				
-			
+			}
+
 			break;
 		}
 
@@ -16925,7 +17068,7 @@ WRDRun:
 				else
 				{
 					WrenchCallStackEntry* frame = (*m_callStack)[depth];
-					
+
 					if ( !frame )
 					{
 						reply = WrenchPacket::alloc( WRD_Err );
@@ -16933,18 +17076,18 @@ WRDRun:
 					else
 					{
 						WRValue* stackFrame = m_context->stack + (frame->stackOffset - frame->arguments);
-						
+
 						wr_serializeEx( serializer, *(stackFrame + index) );
 					}
 				}
-				
+
 				if ( !reply )
 				{
 					reply = WrenchPacket::alloc( WRD_ReplyValue, serializer.size() );
 					memcpy( reply->payload(), serializer.data(), serializer.size() );
 				}
 			}
-				
+
 			break;
 		}
 
@@ -16964,7 +17107,7 @@ WRDRun:
 				reply->param1 = count;
 
 				reply->param2 = (int32_t)( m_firstCall ? WRP_Loaded : WRP_Running );
-				
+
 				WrenchCallStackEntry* pack = (WrenchCallStackEntry *)reply->payload();
 
 				for( WrenchCallStackEntry* E = m_callStack->first(); E; E = m_callStack->next() )
@@ -16975,7 +17118,7 @@ WRDRun:
 					++pack;
 				}
 			}
-			
+
 			break;
 		}
 
@@ -16986,7 +17129,7 @@ WRDRun:
 			{
 				wr_stackDump( m_context->stack, m_context->yield_stackTop, dump );
 			}
-				
+
 			reply = WrenchPacket::alloc( WRD_ReplyStackDump, dump.size() );
 			memcpy( reply->payload(), dump.c_str(), dump.size() );
 
@@ -17200,7 +17343,7 @@ WrenchDebugTcpInterface::WrenchDebugTcpInterface()
 #ifdef WRENCH_WIN32_TCP
 	WSADATA wsaData;
 	WSAStartup( MAKEWORD(2, 2), &wsaData );
-#endif	
+#endif
 }
 
 //------------------------------------------------------------------------------
@@ -17223,7 +17366,7 @@ bool WrenchDebugTcpInterface::accept()
 
 	wr_closeTCPEx( m_socket );
 	m_socket = socket;
-	
+
 	return true;
 }
 
@@ -17264,7 +17407,7 @@ bool WrenchDebugTcpInterface::recvEx( uint8_t* data, const int bytes, const int 
 		{
 			return false;
 		}
-		
+
 		soFar += ret;
 	}
 
@@ -17281,7 +17424,7 @@ uint32_t WrenchDebugTcpInterface::peekEx( const int timeoutMilliseconds )
 		m_socket = -1;
 		return 0;
 	}
-			
+
 	return ret;
 }
 
@@ -17484,7 +17627,7 @@ int WrenchScheduler::addThread( const uint8_t* byteCode, const int size, const i
 	task->next = m_tasks;
 	task->id = ++wr_idGenerator;
 	m_tasks = task;
-			  	
+
 	return task->id;
 }
 
@@ -17507,7 +17650,7 @@ bool WrenchScheduler::removeTask( const int taskId )
 			{
 				m_tasks = task->next;
 			}
-			
+
 			g_free( task );
 			return true;
 		}
@@ -17515,7 +17658,7 @@ bool WrenchScheduler::removeTask( const int taskId )
 		last = task;
 		task = task->next;
 	}
-	
+
 	return false;
 }
 
@@ -17631,10 +17774,10 @@ void wr_growValueArray( WRGCObject* va, int newMinIndex )
 		return;
 	}
 #endif
-	
+
 	memcpy( va->m_Cdata, old, size_el );
 	g_free( old );
-	
+
 	va->m_size = newMinIndex + 1;
 
 	// clear new entries
@@ -17779,7 +17922,7 @@ void wr_valueToEx( const WRValue* ex, WRValue* value )
 			{
 				ex->va->m_Cdata[s] = value->ui;
 			}
-			else 
+			else
 			{
 				WRValue* V = ex->va->m_Vdata + s;
 				wr_assign[(V->type<<2)+value->type](V, value);
@@ -17808,7 +17951,7 @@ void wr_addLibraryCleanupFunction( WRState* w, void (*function)(WRState* w, void
 		return;
 	}
 #endif
-	
+
 	entry->cleanupFunction = function;
 	entry->param = param;
 	entry->next = w->libCleanupFunctions;
@@ -17819,7 +17962,7 @@ void wr_addLibraryCleanupFunction( WRState* w, void (*function)(WRState* w, void
 void wr_countOfArrayElement( WRValue* array, WRValue* target )
 {
 	array = &array->deref();
-				
+
 	if ( IS_EXARRAY_TYPE(array->xtype) )
 	{
 		target->i = array->va->m_size;
@@ -17846,7 +17989,7 @@ void wr_assignToHashTable( WRContext* c, WRValue* index, WRValue* value, WRValue
 		wr_assignToHashTable( c, index, value->r, table );
 		return;
 	}
-	
+
 	if ( table->type == WR_REF )
 	{
 		wr_assignToHashTable( c, index, value, table->r );
@@ -17886,7 +18029,7 @@ bool doLogicalNot_E( WRValue* value )
 	WRValue& V = value->singleValue();
 	return wr_LogicalNot[ V.type ]( &V );
 }
-WRReturnSingleFunc wr_LogicalNot[4] = 
+WRReturnSingleFunc wr_LogicalNot[4] =
 {
 	doLogicalNot_X,  doLogicalNot_X,  doLogicalNot_R,  doLogicalNot_E
 };
@@ -17905,7 +18048,7 @@ void doNegate_R( WRValue* value, WRValue* target )
 	wr_negate[ value->r->type ]( value->r, target );
 }
 
-WRSingleTargetFunc wr_negate[4] = 
+WRSingleTargetFunc wr_negate[4] =
 {
 	doNegate_I,  doNegate_F,  doNegate_R,  doNegate_E
 };
@@ -17919,7 +18062,7 @@ uint32_t doBitwiseNot_E( WRValue* value )
 	WRValue& V = value->singleValue();
 	return wr_bitwiseNot[ V.type ]( &V );
 }
-WRUint32Call wr_bitwiseNot[4] = 
+WRUint32Call wr_bitwiseNot[4] =
 {
 	doBitwiseNot_I,  doBitwiseNot_F,  doBitwiseNot_R,  doBitwiseNot_E
 };
@@ -17968,7 +18111,7 @@ void doAssign_R_F( WRValue* to, WRValue* from ) { wr_assign[(to->r->type<<2)|WR_
 void doAssign_I_R( WRValue* to, WRValue* from ) { wr_assign[(WR_INT<<2)|from->r->type](to, from->r); }
 void doAssign_F_R( WRValue* to, WRValue* from ) { wr_assign[(WR_FLOAT<<2)|from->r->type](to, from->r); }
 void doAssign_X_X( WRValue* to, WRValue* from ) { *to = *from; }
-WRVoidFunc wr_assign[16] = 
+WRVoidFunc wr_assign[16] =
 {
 	doAssign_X_X,  doAssign_X_X,  doAssign_I_R,  doAssign_IF_E,
 	doAssign_X_X,  doAssign_X_X,  doAssign_F_R,  doAssign_IF_E,
@@ -18018,16 +18161,16 @@ void unaryPost_E( WRValue* value, WRValue* stack, int add )
 void unaryPost_I( WRValue* value, WRValue* stack, int add ) { stack->p2 = INIT_AS_INT; stack->i = value->i; value->i += add; }
 void unaryPost_R( WRValue* value, WRValue* stack, int add ) { m_unaryPost[ value->r->type ]( value->r, stack, add ); }
 void unaryPost_F( WRValue* value, WRValue* stack, int add ) { stack->p2 = INIT_AS_FLOAT; stack->f = value->f; value->f += add; }
-WRVoidPlusFunc m_unaryPost[4] = 
+WRVoidPlusFunc m_unaryPost[4] =
 {
 	unaryPost_I,  unaryPost_F,  unaryPost_R, unaryPost_E
 };
 
-void FuncAssign_R_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall ) 
+void FuncAssign_R_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
 {
 	wr_FuncAssign[(to->r->type<<2)|WR_EX](to->r, from, intCall, floatCall);
 }
-void FuncAssign_E_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall ) 
+void FuncAssign_E_E( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
 {
 	if ( IS_CONTAINER_MEMBER(from->xtype) )
 	{
@@ -18072,8 +18215,8 @@ void FuncAssign_E_R( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFl
 
 void FuncAssign_R_R( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFloatCall floatCall )
 {
-	WRValue temp = *from->r; 
-	wr_FuncAssign[(to->r->type<<2)|temp.type](to->r, &temp, intCall, floatCall); 
+	WRValue temp = *from->r;
+	wr_FuncAssign[(to->r->type<<2)|temp.type](to->r, &temp, intCall, floatCall);
 	*from = *to->r;
 }
 
@@ -18107,7 +18250,7 @@ void FuncAssign_F_I( WRValue* to, WRValue* from, WRFuncIntCall intCall, WRFuncFl
 	to->f = floatCall( to->f, (float)from->i );
 }
 
-WRFuncAssignFunc wr_FuncAssign[16] = 
+WRFuncAssignFunc wr_FuncAssign[16] =
 {
 	FuncAssign_I_I,  FuncAssign_I_F,  FuncAssign_X_R,  FuncAssign_X_E,
 	FuncAssign_F_I,  FuncAssign_F_F,  FuncAssign_X_R,  FuncAssign_X_E,
@@ -18191,7 +18334,7 @@ void FuncBinary_F_F( WRValue* to, WRValue* from, WRValue* target, WRFuncIntCall 
 	target->p2 = INIT_AS_FLOAT; target->f = floatCall( to->f, from->f );
 }
 
-WRTargetCallbackFunc wr_funcBinary[16] = 
+WRTargetCallbackFunc wr_funcBinary[16] =
 {
 	FuncBinary_I_I,  FuncBinary_I_F,  FuncBinary_X_R,  FuncBinary_X_E,
 	FuncBinary_F_I,  FuncBinary_F_F,  FuncBinary_X_R,  FuncBinary_X_E,
@@ -18226,7 +18369,7 @@ bool Compare_I_I( WRValue* to, WRValue* from, WRCompareFuncIntCall intCall, WRCo
 bool Compare_I_F( WRValue* to, WRValue* from, WRCompareFuncIntCall intCall, WRCompareFuncFloatCall floatCall ) { return floatCall( (float)to->i, from->f); }
 bool Compare_F_I( WRValue* to, WRValue* from, WRCompareFuncIntCall intCall, WRCompareFuncFloatCall floatCall ) { return floatCall( to->f, (float)from->i); }
 bool Compare_F_F( WRValue* to, WRValue* from, WRCompareFuncIntCall intCall, WRCompareFuncFloatCall floatCall ) { return floatCall( to->f, from->f); }
-WRBoolCallbackReturnFunc wr_Compare[16] = 
+WRBoolCallbackReturnFunc wr_Compare[16] =
 {
 	Compare_I_I, Compare_I_F, Compare_X_R, Compare_X_E,
 	Compare_F_I, Compare_F_F, Compare_X_R, Compare_X_E,
@@ -18330,7 +18473,7 @@ void wr_SubtractAssign_E_F( WRValue* to, WRValue* from )
 	wr_valueToEx( to, &V );
 	*from = V;
 }
-void wr_SubtractAssign_E_E( WRValue* to, WRValue* from ) 
+void wr_SubtractAssign_E_E( WRValue* to, WRValue* from )
 {
 	WRValue& V = from->singleValue();
 
@@ -18353,7 +18496,7 @@ void wr_SubtractAssign_E_R( WRValue* to, WRValue* from )
 {
 	wr_SubtractAssign[(WR_EX<<2)|from->r->type]( to, from->r );
 }
-void wr_SubtractAssign_R_E( WRValue* to, WRValue* from ) { wr_SubtractAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; } 
+void wr_SubtractAssign_R_E( WRValue* to, WRValue* from ) { wr_SubtractAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; }
 void wr_SubtractAssign_R_R( WRValue* to, WRValue* from ) { WRValue temp = *from->r; wr_SubtractAssign[(to->r->type<<2)|temp.type](to->r, &temp); *from = *to->r; }
 void wr_SubtractAssign_R_I( WRValue* to, WRValue* from ) { wr_SubtractAssign[(to->r->type<<2)|WR_INT](to->r, from); *from = *to->r; }
 void wr_SubtractAssign_R_F( WRValue* to, WRValue* from ) { wr_SubtractAssign[(to->r->type<<2)|WR_FLOAT](to->r, from); *from = *to->r; }
@@ -18363,7 +18506,7 @@ void wr_SubtractAssign_F_F( WRValue* to, WRValue* from ) { to->f -= from->f; }
 void wr_SubtractAssign_I_I( WRValue* to, WRValue* from ) { to->i -= from->i; }
 void wr_SubtractAssign_I_F( WRValue* to, WRValue* from ) { to->p2 = INIT_AS_FLOAT; to->f = (float)to->i - from->f; }
 void wr_SubtractAssign_F_I( WRValue* to, WRValue* from ) { from->p2 = INIT_AS_FLOAT; to->f -= (float)from->i; }
-WRVoidFunc wr_SubtractAssign[16] = 
+WRVoidFunc wr_SubtractAssign[16] =
 {
 	wr_SubtractAssign_I_I,  wr_SubtractAssign_I_F,  wr_SubtractAssign_I_R,  wr_SubtractAssign_I_E,
 	wr_SubtractAssign_F_I,  wr_SubtractAssign_F_F,  wr_SubtractAssign_F_R,  wr_SubtractAssign_F_E,
@@ -18390,7 +18533,7 @@ void wr_MultiplyAssign_E_F( WRValue* to, WRValue* from )
 	wr_valueToEx( to, &V );
 	*from = V;
 }
-void wr_MultiplyAssign_E_E( WRValue* to, WRValue* from ) 
+void wr_MultiplyAssign_E_E( WRValue* to, WRValue* from )
 {
 	WRValue& V = from->singleValue();
 
@@ -18413,7 +18556,7 @@ void wr_MultiplyAssign_E_R( WRValue* to, WRValue* from )
 {
 	wr_MultiplyAssign[(WR_EX<<2)|from->r->type]( to, from->r );
 }
-void wr_MultiplyAssign_R_E( WRValue* to, WRValue* from ) { wr_MultiplyAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; } 
+void wr_MultiplyAssign_R_E( WRValue* to, WRValue* from ) { wr_MultiplyAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; }
 void wr_MultiplyAssign_R_R( WRValue* to, WRValue* from ) { WRValue temp = *from->r; wr_MultiplyAssign[(to->r->type<<2)|temp.type](to->r, &temp); *from = *to->r; }
 void wr_MultiplyAssign_R_I( WRValue* to, WRValue* from ) { wr_MultiplyAssign[(to->r->type<<2)|WR_INT](to->r, from); *from = *to->r; }
 void wr_MultiplyAssign_R_F( WRValue* to, WRValue* from ) { wr_MultiplyAssign[(to->r->type<<2)|WR_FLOAT](to->r, from); *from = *to->r; }
@@ -18423,7 +18566,7 @@ void wr_MultiplyAssign_F_F( WRValue* to, WRValue* from ) { to->f *= from->f; }
 void wr_MultiplyAssign_I_I( WRValue* to, WRValue* from ) { to->i *= from->i; }
 void wr_MultiplyAssign_I_F( WRValue* to, WRValue* from ) { to->p2 = INIT_AS_FLOAT; to->f = (float)to->i * from->f; }
 void wr_MultiplyAssign_F_I( WRValue* to, WRValue* from ) { from->p2 = INIT_AS_FLOAT; to->f *= (float)from->i; }
-WRVoidFunc wr_MultiplyAssign[16] = 
+WRVoidFunc wr_MultiplyAssign[16] =
 {
 	wr_MultiplyAssign_I_I,  wr_MultiplyAssign_I_F,  wr_MultiplyAssign_I_R,  wr_MultiplyAssign_I_E,
 	wr_MultiplyAssign_F_I,  wr_MultiplyAssign_F_F,  wr_MultiplyAssign_F_R,  wr_MultiplyAssign_F_E,
@@ -18450,7 +18593,7 @@ void wr_DivideAssign_E_F( WRValue* to, WRValue* from )
 	wr_valueToEx( to, &V );
 	*from = V;
 }
-void wr_DivideAssign_E_E( WRValue* to, WRValue* from ) 
+void wr_DivideAssign_E_E( WRValue* to, WRValue* from )
 {
 	WRValue& V = from->singleValue();
 
@@ -18473,7 +18616,7 @@ void wr_DivideAssign_E_R( WRValue* to, WRValue* from )
 {
 	wr_DivideAssign[(WR_EX<<2)|from->r->type]( to, from->r );
 }
-void wr_DivideAssign_R_E( WRValue* to, WRValue* from ) { wr_DivideAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; } 
+void wr_DivideAssign_R_E( WRValue* to, WRValue* from ) { wr_DivideAssign[(to->r->type<<2)|WR_EX](to->r, from); *from = *to->r; }
 void wr_DivideAssign_R_R( WRValue* to, WRValue* from ) { WRValue temp = *from->r; wr_DivideAssign[(to->r->type<<2)|temp.type](to->r, &temp); *from = *to->r; }
 void wr_DivideAssign_R_I( WRValue* to, WRValue* from ) { wr_DivideAssign[(to->r->type<<2)|WR_INT](to->r, from); *from = *to->r; }
 void wr_DivideAssign_R_F( WRValue* to, WRValue* from ) { wr_DivideAssign[(to->r->type<<2)|WR_FLOAT](to->r, from); *from = *to->r; }
@@ -18544,7 +18687,7 @@ void wr_DivideAssign_F_I( WRValue* to, WRValue* from )
 	}
 }
 
-WRVoidFunc wr_DivideAssign[16] = 
+WRVoidFunc wr_DivideAssign[16] =
 {
 	wr_DivideAssign_I_I,  wr_DivideAssign_I_F,  wr_DivideAssign_I_R,  wr_DivideAssign_I_E,
 	wr_DivideAssign_F_I,  wr_DivideAssign_F_F,  wr_DivideAssign_F_R,  wr_DivideAssign_F_E,
@@ -18558,9 +18701,9 @@ void wr_AddAssign_E_I( WRValue* to, WRValue* from )
 	if ( !wr_concatStringCheck( to, from, to) )
 	{
 		WRValue& V = to->singleValue();
-	
+
 		wr_AddAssign[(V.type<<2)|WR_INT]( &V, from );
-	
+
 		wr_valueToEx( to, &V );
 		*from = V;
 	}
@@ -18573,12 +18716,12 @@ void wr_AddAssign_E_F( WRValue* to, WRValue* from )
 		WRValue& V = to->singleValue();
 
 		wr_AddAssign[(V.type<<2)|WR_FLOAT]( &V, from );
-		
+
 		wr_valueToEx( to, &V );
 		*from = V;
 	}
 }
-void wr_AddAssign_E_E( WRValue* to, WRValue* from ) 
+void wr_AddAssign_E_E( WRValue* to, WRValue* from )
 {
 	if ( IS_CONTAINER_MEMBER(from->xtype) )
 	{
@@ -18624,7 +18767,7 @@ void wr_AddAssign_F_F( WRValue* to, WRValue* from ) { to->f += from->f; }
 void wr_AddAssign_I_I( WRValue* to, WRValue* from ) { to->i += from->i; }
 void wr_AddAssign_I_F( WRValue* to, WRValue* from ) { to->p2 = INIT_AS_FLOAT; to->f = (float)to->i + from->f; }
 void wr_AddAssign_F_I( WRValue* to, WRValue* from ) { from->p2 = INIT_AS_FLOAT; to->f += (float)from->i; }
-WRVoidFunc wr_AddAssign[16] = 
+WRVoidFunc wr_AddAssign[16] =
 {
 	wr_AddAssign_I_I,  wr_AddAssign_I_F,  wr_AddAssign_I_R,  wr_AddAssign_I_E,
 	wr_AddAssign_F_I,  wr_AddAssign_F_F,  wr_AddAssign_F_R,  wr_AddAssign_F_E,
@@ -18783,7 +18926,7 @@ void wr_DivideBinary_F_F( WRValue* to, WRValue* from, WRValue* target )
 	}
 }
 
-WRTargetFunc wr_DivideBinary[16] = 
+WRTargetFunc wr_DivideBinary[16] =
 {
 	wr_DivideBinary_I_I,  wr_DivideBinary_I_F,  wr_DivideBinary_I_R,  wr_DivideBinary_I_E,
 	wr_DivideBinary_F_I,  wr_DivideBinary_F_F,  wr_DivideBinary_F_R,  wr_DivideBinary_F_E,
@@ -18844,7 +18987,7 @@ void wr_AdditionBinary_I_I( WRValue* to, WRValue* from, WRValue* target ) { targ
 void wr_AdditionBinary_I_F( WRValue* to, WRValue* from, WRValue* target ) { target->p2 = INIT_AS_FLOAT; target->f = (float)to->i + from->f; }
 void wr_AdditionBinary_F_I( WRValue* to, WRValue* from, WRValue* target ) { target->p2 = INIT_AS_FLOAT; target->f = to->f + (float)from->i; }
 void wr_AdditionBinary_F_F( WRValue* to, WRValue* from, WRValue* target ) { target->p2 = INIT_AS_FLOAT; target->f = to->f + from->f; }
-WRTargetFunc wr_AdditionBinary[16] = 
+WRTargetFunc wr_AdditionBinary[16] =
 {
 	wr_AdditionBinary_I_I,  wr_AdditionBinary_I_F,  wr_AdditionBinary_I_R,  wr_AdditionBinary_I_E,
 	wr_AdditionBinary_F_I,  wr_AdditionBinary_F_F,  wr_AdditionBinary_F_R,  wr_AdditionBinary_F_E,
@@ -18995,7 +19138,7 @@ bool wr_CompareLT_I_I( WRValue* to, WRValue* from ) { return to->i < from->i; }
 bool wr_CompareLT_I_F( WRValue* to, WRValue* from ) { to->p2 = INIT_AS_FLOAT; return to->i < from->f; }
 bool wr_CompareLT_F_I( WRValue* to, WRValue* from ) { return to->f < (float)from->i; }
 bool wr_CompareLT_F_F( WRValue* to, WRValue* from ) { return to->f < from->f; }
-WRReturnFunc wr_CompareLT[16] = 
+WRReturnFunc wr_CompareLT[16] =
 {
 	wr_CompareLT_I_I, wr_CompareLT_I_F, wr_CompareLT_I_R, wr_CompareLT_I_E,
 	wr_CompareLT_F_I, wr_CompareLT_F_F, wr_CompareLT_F_R, wr_CompareLT_F_E,
@@ -19049,7 +19192,7 @@ bool wr_CompareEQ_F_F( WRValue* to, WRValue* from )
 {
 	return WR_FLOATS_EQUAL( to->f, from->f );
 }
-WRReturnFunc wr_CompareEQ[16] = 
+WRReturnFunc wr_CompareEQ[16] =
 {
 	wr_CompareEQ_I_I, wr_CompareEQ_I_F, wr_CompareEQ_I_R, wr_CompareEQ_I_E,
 	wr_CompareEQ_F_I, wr_CompareEQ_F_F, wr_CompareEQ_F_R, wr_CompareEQ_F_E,
@@ -19156,11 +19299,19 @@ void arrayElementToTarget( const uint32_t index, WRValue* target, WRValue* value
 }
 
 //------------------------------------------------------------------------------
+WRValue* wr_valueFromConfirmedStruct( WRValue* value, uint32_t hash )
+{
+	const unsigned char* table = value->va->m_ROMHashTable + ((hash % value->va->m_mod) * 5);
+
+	return ((uint32_t)READ_32_FROM_PC(table) == hash) ? ((WRValue*)(value->va->m_data) + READ_8_FROM_PC(table + 4)) : 0;
+}
+
+//------------------------------------------------------------------------------
 void wr_doIndexHash( WRValue* index, WRValue* value, WRValue* target )
 {
 	uint32_t hash = index->getHash();
 
-	if ( value->xtype == WR_EX_HASH_TABLE ) 
+	if ( value->xtype == WR_EX_HASH_TABLE )
 	{
 		int element;
 		WRValue* entry = (WRValue*)(value->va->get(hash, &element));
@@ -19173,19 +19324,13 @@ void wr_doIndexHash( WRValue* index, WRValue* value, WRValue* target )
 	}
 	else // naming an element of a struct "S.element"
 	{
-		const unsigned char* table = value->va->m_ROMHashTable + ((hash % value->va->m_mod) * 5);
-
-		if ( (uint32_t)READ_32_FROM_PC(table) == hash )
+		if ( (target->r = wr_valueFromConfirmedStruct( value, hash )) )
 		{
-			int o = READ_8_FROM_PC(table + 4);
-
 			target->p2 = INIT_AS_REF;
-			target->r = ((WRValue*)(value->va->m_data)) + o;
-
 		}
 		else
 		{
-			target->init();
+			target->p2 = INIT_AS_INT;
 		}
 	}
 }
@@ -19203,7 +19348,7 @@ void doIndex_I_X( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 	}
 #endif
 	value->p2 = INIT_AS_ARRAY;
-	
+
 	arrayElementToTarget( index->ui, target, value );
 }
 
@@ -19302,7 +19447,7 @@ void doIndex_E_I( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 	}
 #endif
 	V->p2 = INIT_AS_HASH_TABLE;
-	
+
 	WRValue* I = &(index->singleValue());
 	doIndex_I_E( c, I, V, target );
 }
@@ -19315,7 +19460,7 @@ void doIndex_E_E( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 	if ( I->type > WR_FLOAT )
 	{
 		WRValue* V = &(value->deref());
-		
+
 		if ( !EXPECTS_HASH_INDEX(V->xtype) )
 		{
 			target->init();
@@ -19341,11 +19486,11 @@ void doIndex_R_R( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 void doIndex_X_R( WRContext* c, WRValue* index, WRValue* value, WRValue* target ) { wr_index[(index->type<<2)|value->r->type](c, index, value->r, target); }
 void doIndex_R_X( WRContext* c, WRValue* index, WRValue* value, WRValue* target ) { wr_index[(index->r->type<<2)|value->type](c, index->r, value, target); }
 
-WRStateFunc wr_index[16] = 
+WRStateFunc wr_index[16] =
 {
 	doIndex_I_X,     doIndex_I_X,     doIndex_X_R,     doIndex_I_E,
 	doVoidIndexFunc, doVoidIndexFunc, doVoidIndexFunc, doVoidIndexFunc,
-	doIndex_R_X,     doIndex_R_X,     doIndex_R_R,     doIndex_R_X, 
+	doIndex_R_X,     doIndex_R_X,     doIndex_R_R,     doIndex_R_X,
 	doIndex_E_I,     doIndex_E_I,     doIndex_X_R,     doIndex_E_E,
 };
 
@@ -19358,11 +19503,11 @@ void doIndex_R_F( WRContext* c, WRValue* index, WRValue* value, WRValue* target 
 void doIndex_R_E( WRContext* c, WRValue* index, WRValue* value, WRValue* target ) { wr_index[(index->r->type<<2)|WR_EX](c, index->r, value, target); }
 void doIndex_E_R( WRContext* c, WRValue* index, WRValue* value, WRValue* target ) { wr_index[(WR_EX<<2)|value->r->type](c, index, value->r, target); }
 
-WRStateFunc wr_index[16] = 
+WRStateFunc wr_index[16] =
 {
 	doIndex_I_X,     doIndex_I_X,     doIndex_I_R,     doIndex_I_E,
 	doVoidIndexFunc, doVoidIndexFunc, doVoidIndexFunc, doVoidIndexFunc,
-	doIndex_R_I,     doIndex_R_F,     doIndex_R_R,     doIndex_R_E, 
+	doIndex_R_I,     doIndex_R_F,     doIndex_R_R,     doIndex_R_E,
 	doIndex_E_I,     doIndex_E_I,     doIndex_E_R,     doIndex_E_E,
 };
 
@@ -19548,9 +19693,9 @@ void wr_std_rand( WRValue* stackTop, const int argn, WRContext* c )
 	if ( argn > 0 )
 	{
 		WRValue* args = stackTop - argn;
-		
+
 		int32_t a = args[0].asInt();
-		int32_t b; 
+		int32_t b;
 		if ( argn > 1 )
 		{
 			a = args[0].asInt();
@@ -19706,7 +19851,7 @@ void wr_read_file( WRValue* stackTop, const int argn, WRContext* c )
 		struct stat sbuf;
 		int ret = stat( fileName, &sbuf );
 #endif
-		
+
 		if ( ret == 0 )
 		{
 			FILE *infil = fopen( fileName, "rb" );
@@ -19785,7 +19930,7 @@ void wr_getline( WRValue* stackTop, const int argn, WRContext* c )
 		int in = fgetc( stdin );
 
 		if ( in == EOF || in == '\n' || in == '\r' || pos >= 256 )
-		{ 
+		{
 			stackTop->va = c->getSVA( pos, SV_CHAR, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 			if ( !stackTop->va )
@@ -19816,7 +19961,7 @@ void wr_ioOpen( WRValue* stackTop, const int argn, WRContext* c )
 		if ( fileName )
 		{
 			int mode = (argn > 1) ? args[1].asInt() : O_RDWR | O_CREAT;
-			
+
 #if defined(WRENCH_WIN32_FILE_IO)
 			stackTop->i = _open( fileName, mode | O_BINARY, _S_IREAD | _S_IWRITE /*0600*/ );
 #endif
@@ -20031,7 +20176,7 @@ SOFTWARE.
 	|| defined(WRENCH_LINUX_TCP)
 
 //------------------------------------------------------------------------------
-const unsigned int c_legalMasks[33] = 
+const unsigned int c_legalMasks[33] =
 {
 	0x00000000, // 0
 	0x80000000,
@@ -20056,7 +20201,7 @@ const unsigned int c_legalMasks[33] =
 	0xFFFFF000,
 	0xFFFFF800,
 	0xFFFFFC00,
-	0xFFFFFE00,   
+	0xFFFFFE00,
 	0xFFFFFF00, // 24
 	0xFFFFFF80, // 25
 	0xFFFFFFC0,
@@ -20333,7 +20478,7 @@ int wr_connectTCPEx( const char* address, const int port )
 
 	char ret[21];
 	ipFromAddress( address, &location, ret );
-	
+
 	location.sin_family = AF_INET;
 	location.sin_port = htons( port );
 
@@ -20483,7 +20628,7 @@ int wr_peekTCPEx( const int socket, const int timeoutMilliseconds )
 	DWORD timeout = timeoutMilliseconds;
 	setsockopt( socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout) );
 	int retval = recv( socket, 0, 65000, MSG_PEEK );
-	
+
 	return retval == SOCKET_ERROR ? -1 : retval;
 
 #endif
@@ -20566,9 +20711,7 @@ SOFTWARE.
 *******************************************************************************/
 
 #include "wrench.h"
-void wr_stdout( const char* data, const int size )
-{
-}
+
 #if defined(WRENCH_LITTLEFS_FILE_IO) || defined(WRENCH_SPIFFS_FILE_IO)
 #include <FS.h>
 #ifdef WRENCH_LITTLEFS_FILE_IO
@@ -20632,7 +20775,7 @@ void wr_read_file( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-	
+
 	WRValue* arg = stackTop - 1;
 	WRValue::MallocStrScoped fileName( *arg );
 
@@ -20666,7 +20809,7 @@ void wr_write_file( WRValue* stackTop, const int argn, WRContext* c )
 	}
 
 	WRValue::MallocStrScoped fileName( *arg );
-	
+
 	unsigned int len;
 	const char* data = (char*)((stackTop - 1)->array(&len));
 	if ( !data )
@@ -20691,7 +20834,7 @@ void wr_delete_file( WRValue* stackTop, const int argn, WRContext* c )
 	if ( argn == 1 )
 	{
 		FILE_OBJ.remove( WRValue::MallocStrScoped fileName(*arg) );
-	} 
+	}
 }
 
 //------------------------------------------------------------------------------
@@ -20706,7 +20849,7 @@ void wr_ioOpen( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-	
+
 	WRValue* args = stackTop - argn;
 
 	int mode = LFS_RDWR;
@@ -20723,7 +20866,7 @@ void wr_ioOpen( WRValue* stackTop, const int argn, WRContext* c )
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 		if(!entry) { g_mallocFailed = true; return; }
 #endif
-		
+
 		if ( mode & LFS_READ )
 		{
 			entry->file = FILE_OBJ.open( fileName, FILE_READ );
@@ -20770,7 +20913,7 @@ void wr_ioClose( WRValue* stackTop, const int argn, WRContext* c )
 		if ( cur == args->p )
 		{
 			cur->file.close();
-			
+
 			if ( !prev )
 			{
 				g_OpenFiles = g_OpenFiles->next;
@@ -20779,7 +20922,7 @@ void wr_ioClose( WRValue* stackTop, const int argn, WRContext* c )
 			{
 				prev->next = cur->next;
 			}
-			
+
 			g_free( cur );
 			break;
 		}
@@ -20796,7 +20939,7 @@ void wr_ioRead( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-	
+
 	WRValue* args = stackTop - argn;
 
 	int toRead = args[1].asInt();
@@ -20810,7 +20953,7 @@ void wr_ioRead( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-		
+
 	stackTop->va = c->getSVA( toRead, SV_CHAR, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !stackTop->va )
@@ -20821,7 +20964,7 @@ void wr_ioRead( WRValue* stackTop, const int argn, WRContext* c )
 	stackTop->p2 = INIT_AS_ARRAY;
 
 	int result = fd->file.readBytes( stackTop->va->m_SCdata, toRead );
-	
+
 	stackTop->va->m_size = (result > 0) ? result : 0;
 }
 
@@ -20883,7 +21026,7 @@ void wr_ioSeek( WRValue* stackTop, const int argn, WRContext* c )
 		{
 			return;
 		}
-		
+
 		int offset = args[1].asInt();
 		int whence = argn > 2 ? args[2].asInt() : LFS_SET;
 
@@ -20895,7 +21038,7 @@ void wr_ioSeek( WRValue* stackTop, const int argn, WRContext* c )
 		{
 			offset += (int)fd->file.position();
 		}
-		
+
 		fd->file.seek( (unsigned long)offset );
 	}
 }
@@ -20930,7 +21073,7 @@ void wr_ioCleanupFunction( WRState* w, void* param )
 void wr_ioPushConstants( WRState* w )
 {
 	WRValue C;
-	
+
 	wr_registerLibraryConstant( w, "io::O_RDONLY", (int32_t)LFS_READ );
 	wr_registerLibraryConstant( w, "io::O_RDWR", (int32_t)LFS_RDWR );
 	wr_registerLibraryConstant( w, "io::O_APPEND", (int32_t)LFS_APPEND );
@@ -21000,7 +21143,7 @@ inline void addChar( char* out, char c, unsigned int& pos, const unsigned int ma
 	{
 		out[pos] = c;
 	}
-	
+
 	++pos;
 }
 
@@ -21044,7 +21187,7 @@ resetState:
 		{
 			goto sprintf_end;
 		}
-		
+
 		char c = *fmt++;
 
 		if ( !(secondPass & flags) )
@@ -21281,9 +21424,9 @@ convertBase:
 			}
 		}
 	}
-	
+
 sprintf_end:
-	
+
 	return pos;
 }
 
@@ -21310,7 +21453,7 @@ unsigned int wr_doSprintf( WRValue& to, WRValue& fmt, WRValue* args, const int a
 	if ( !outbuf ) // going to have to make one then
 	{
 		char tmpbuf[WR_FORMAT_TRY_SIZE + 1]; // start with a temp buf
-		
+
 		size = wr_sprintfEx( tmpbuf, WR_FORMAT_TRY_SIZE, fmtbuffer, fmtBufferSize, args, argn );
 
 		if ( size > WR_FORMAT_TRY_SIZE )
@@ -21382,6 +21525,12 @@ void wr_sprintf( WRValue* stackTop, const int argn, WRContext* c )
 	}
 }
 
+void wr_stdout(const char* data, const int size)
+{
+
+}
+
+
 //------------------------------------------------------------------------------
 void wr_printf( WRValue* stackTop, const int argn, WRContext* c )
 {
@@ -21446,12 +21595,12 @@ void wr_mid( WRValue* stackTop, const int argn, WRContext* c )
 	WRValue* args = stackTop - argn;
 	unsigned int len;
 	const char* data = (char *)(args[0].array(&len));
-	
+
 	if( !data || len <= 0 )
 	{
 		return;
 	}
-	
+
 	unsigned int start = args[1].asInt();
 
 	unsigned int chars = 0;
@@ -21463,7 +21612,7 @@ void wr_mid( WRValue* stackTop, const int argn, WRContext* c )
 			chars = len - start;
 		}
 	}
-	
+
 	stackTop->va = c->getSVA( chars, SV_CHAR, false );
 
 	#ifdef WRENCH_HANDLE_MALLOC_FAIL
@@ -21472,7 +21621,7 @@ void wr_mid( WRValue* stackTop, const int argn, WRContext* c )
 		return;
 	}
 	#endif
-	
+
 	stackTop->p2 = INIT_AS_ARRAY;
 	memcpy( stackTop->va->m_Cdata, data + start, chars );
 }
@@ -21495,7 +21644,7 @@ void wr_strchr( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-	
+
 	char ch = (char)args[1].asInt();
 	for( unsigned int i=0; i<len; ++i )
 	{
@@ -21633,7 +21782,7 @@ void wr_left( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		chars = len;
 	}
-	
+
 	stackTop->va = c->getSVA( chars, SV_CHAR, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 	if ( !stackTop->va )
@@ -21685,7 +21834,7 @@ void wr_trimright( WRValue* stackTop, const int argn, WRContext* c )
 	WRValue* args = stackTop - argn;
 	const char* data;
 	int len = 0;
-	
+
 	if ( argn < 1 || ((data = (const char*)args->array((unsigned int *)&len)) == 0) )
 	{
 		return;
@@ -21713,7 +21862,7 @@ void wr_trimleft( WRValue* stackTop, const int argn, WRContext* c )
 	WRValue* args = stackTop - argn;
 	const char* data;
 	unsigned int len = 0;
-	
+
 	if ( argn < 1 || ((data = (const char*)args->array(&len)) == 0) )
 	{
 		return;
@@ -21782,7 +21931,7 @@ void wr_insert( WRValue* stackTop, const int argn, WRContext* c )
 	{
 		return;
 	}
-	
+
 	unsigned int pos = args[2].asInt();
 	if ( pos >= len1 )
 	{
@@ -21825,7 +21974,7 @@ void wr_loadStringLib( WRState* w )
 
 	wr_registerLibraryFunction( w, "str::sprintf", wr_sprintf );
 	wr_registerLibraryFunction( w, "str::format", wr_format );
-	
+
 	wr_registerLibraryFunction( w, "str::printf", wr_printf );
 	wr_registerLibraryFunction( w, "str::isspace", wr_isspace );
 	wr_registerLibraryFunction( w, "str::isdigit", wr_isdigit );
@@ -22192,7 +22341,7 @@ SOFTWARE.
 
 //------------------------------------------------------------------------------
 // key   : anything hashable
-// clear : [OPTIONAL] default 0/'false' 
+// clear : [OPTIONAL] default 0/'false'
 //
 // returns : value if it was there
 void wr_mboxRead( WRValue* stackTop, const int argn, WRContext* c )
@@ -22368,7 +22517,7 @@ void wr_loadSysLib( WRState* w )
 	wr_registerLibraryFunction( w, "sys::isFunction", wr_isFunction );
 	wr_registerLibraryFunction( w, "sys::importByteCode", wr_importByteCode );
 	wr_registerLibraryFunction( w, "sys::importCompile", wr_importCompile );
-	wr_registerLibraryFunction( w, "sys::halt", wr_halt ); // halts execution and sets w->err to whatever was passed                 
+	wr_registerLibraryFunction( w, "sys::halt", wr_halt ); // halts execution and sets w->err to whatever was passed
 														   // NOTE: value must be between WR_USER and WR_ERR_LAST
 
 }
@@ -22514,7 +22663,7 @@ void wr_arrayClear( WRValue* stackTop, const int argn, WRContext* c )
 		{
 			count = args[1].asInt();
 		}
-		
+
 		A->va = c->getSVA( count, SV_VALUE, false );
 #ifdef WRENCH_HANDLE_MALLOC_FAIL
 		if ( !A->va )
@@ -22767,7 +22916,7 @@ void wr_hashClear( WRValue* stackTop, const int argn, WRContext* c )
 #endif
 
 		*stackTop = *A;
-		
+
 		c->gc( stackTop + 1 );
 	}
 }
@@ -22916,9 +23065,9 @@ void wr_debugPrintEx( WRValue* stackTop, const int argn, WRContext* c, const cha
 
 		char outbuf[200];
 		int size = wr_sprintfEx( outbuf, 199, inbuf, inlen, args + 1, argn - 1);
-			
+
 		WrenchPacket* P = WrenchPacket::alloc( WRD_DebugOut, size, (uint8_t*)outbuf );
-			
+
 		g_free( inbuf );
 
 		c->debugInterface->I->m_comm->send( P );
