@@ -18,6 +18,7 @@
 #include <ESPAsyncWebServer.h>
 #include <animations/Splash.h>
 #include <EEPROM.h>
+#include <new>
 
 #define NUMPIXELS 144
 #define PIN D4
@@ -154,11 +155,11 @@ public:
             {
                 if (current_internal_app->is_wrench)
                 {
-                    if (!transmitting_wrench)
+                    if (wc != nullptr)
                     {
                         wr_callFunction(wc, "draw");
                     }
-                    if (wr_getLastError(w) != 0)
+                    if (w != nullptr && wr_getLastError(w) != 0)
                     {
                         Serial.print(F("WREN Error when drawing: "));
                         Serial.println(wr_getLastError(w));
@@ -196,12 +197,12 @@ public:
             game_loop_timer = millis();
             if (current_internal_app->is_wrench)
             {
-                if (!transmitting_wrench)
+                if (wc != nullptr)
                 {
                     wr_callFunction(wc, "game_loop");
                 }
 
-                if (wr_getLastError(w) != 0)
+                if (w != nullptr && wr_getLastError(w) != 0)
                 {
                     Serial.print(F("WREN Error when game_loop: "));
                     Serial.println(wr_getLastError(w));
@@ -272,31 +273,33 @@ public:
         }
 
 
+        // Tear down whatever is actually running. Decide based on the real state
+        // (w / current_application), not on current_internal_app, because that
+        // pointer may already point to a different app.
         if (w != nullptr)
         {
             Serial.println(F("WRENCH WAS ACTIVE"));
-            wr_destroyState(w);
+            wr_destroyState(w); // also frees wc
             w = nullptr;
+            wc = nullptr;
         }
 
+        delete[] this->wrench_code;
+        this->wrench_code = nullptr;
 
-        if (current_internal_app->is_wrench)
-        {
-            Serial.println(F("WRENCH WAS ACTIVE"));
-            if (!devMode)
-                delete[] this->wrench_code;
-        }
-        else
+        if (current_application != nullptr)
         {
             current_application->clean_up(mm);
             delete current_application;
-            current_internal_app = nullptr;
+            current_application = nullptr;
         }
+        current_internal_app = nullptr;
 
 
         cm->reset();
         activeApplication = id;
         this->mm->set_tps(TPS);
+        delete cm->__internal_get_animation();
         cm->__internal_set_animation(nullptr);
         mm->clear();
 
@@ -330,10 +333,29 @@ public:
         //   for (int i = 0; i < 83; i++)
         //      Serial.printf("%02X ", current_internal_app->wrench_code[i]);
 
-        if (!devMode)
+        delete[] this->wrench_code;
+        this->wrench_code = nullptr;
+
+        if (current_internal_app == devApp)
         {
-            this->wrench_code = new unsigned char[current_internal_app->wrench_code_size];
-            memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
+            // take ownership of the uploaded dev code
+            this->wrench_code = dev_upload_code;
+            dev_upload_code = nullptr;
+            dev_upload_size = 0;
+        }
+        else
+        {
+            this->wrench_code = new (std::nothrow) unsigned char[current_internal_app->wrench_code_size];
+            if (this->wrench_code != nullptr)
+            {
+                memcpy_P(this->wrench_code, current_internal_app->wrench_code, current_internal_app->wrench_code_size);
+            }
+        }
+
+        if (this->wrench_code == nullptr)
+        {
+            Serial.println(F("No wrench code (out of memory?)"));
+            return;
         }
 
         wc = wr_run(w, this->wrench_code, current_internal_app->wrench_code_size); // load and run the code!
@@ -341,7 +363,11 @@ public:
 
         //print wr_getLastError(w);
         Serial.println(wr_getLastError(w));
-        // clean up
+        if (wc == nullptr)
+        {
+            Serial.println(F("wr_run failed"));
+            return;
+        }
         Serial.println(F("try to execute function init"));
 
         WRValue* result = wr_callFunction(wc, "init");
@@ -622,32 +648,32 @@ private:
                           Serial.printf("Index: %d, Total: %d\n, on %s", index, total, request->url().c_str());
                           if (request->url() == "/pushDevCode")
                           {
+                              // Upload into a separate buffer. The running app (and its
+                              // wrench code) stays untouched until the upload is complete.
                               if (index == 0)
                               {
-                                  devMode = true;
-                                  transmitting_wrench = true;
-
-                                  if (wrench_code != nullptr)
-                                  {
-                                      delete[] wrench_code;
-                                  }
-
-                                  wrench_code = new unsigned char[total];
-                                  current_internal_app = this->devApp;
-                                  current_internal_app->wrench_code_size = total;
+                                  delete[] dev_upload_code;
+                                  dev_upload_code = new (std::nothrow) unsigned char[total];
+                                  dev_upload_size = dev_upload_code != nullptr ? total : 0;
                                   Serial.println("Code upload started\n");
                               }
 
+                              if (dev_upload_code == nullptr || total != dev_upload_size || index + len > total)
+                              {
+                                  Serial.println(F("Code upload rejected"));
+                                  return;
+                              }
 
                               Serial.printf("Received %d bytes\n", len);
 
-                              memcpy(wrench_code + index, data, len);
+                              memcpy(dev_upload_code + index, data, len);
 
                               if ((index + len) == total)
                               {
                                   Serial.println("Code upload finished");
+                                  devMode = true;
+                                  devApp->wrench_code_size = total;
                                   switch_project(applications.size() - 1);
-                                  transmitting_wrench = false;
                               }
                           }
                       });
@@ -786,6 +812,20 @@ private:
         return {"", 0};
     }
 
+    void dispatch_event(Event e)
+    {
+        if (wc != nullptr)
+        {
+            WRValue val;
+            wr_makeInt(&val, e);
+            wr_callFunction(wc, "on_event", &val, 1);
+        }
+        else if (current_application != nullptr)
+        {
+            current_application->on_event(e, mm, cm);
+        }
+    }
+
     void handleWebSocketMessage(void* arg, unsigned char* data, size_t len)
     {
         auto* info = static_cast<AwsFrameInfo*>(arg);
@@ -809,114 +849,42 @@ private:
 
                     if (action == F("up"))
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::UP);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::UP, mm, cm);
-                        }
+                        dispatch_event(Event::UP);
                     }
 
                     if (action == F("down"))
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::DOWN);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::DOWN, mm, cm);
-                        }
+                        dispatch_event(Event::DOWN);
                     }
 
                     if (action == F("left"))
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::LEFT);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::LEFT, mm, cm);
-                        }
+                        dispatch_event(Event::LEFT);
                     }
 
                     if (action == F("right"))
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::RIGHT);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::RIGHT, mm, cm);
-                        }
+                        dispatch_event(Event::RIGHT);
                     }
 
                     if (action == F("middle"))
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::MIDDLE);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::MIDDLE, mm, cm);
-                        }
+                        dispatch_event(Event::MIDDLE);
                     }
 
                     if (action == "a")
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::A);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::A, mm, cm);
-                        }
+                        dispatch_event(Event::A);
                     }
 
                     if (action == "b")
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::B);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::B, mm, cm);
-                        }
+                        dispatch_event(Event::B);
                     }
 
                     if (action == "c")
                     {
-                        if (this->current_internal_app->is_wrench)
-                        {
-                            WRValue val;
-                            wr_makeInt(&val, Event::C);
-                            wr_callFunction(wc, "on_event", &val, 1);
-                        }
-                        else
-                        {
-                            this->current_application->on_event(Event::C, mm, cm);
-                        }
+                        dispatch_event(Event::C);
                     }
                 }
             }
@@ -955,5 +923,6 @@ private:
     WRContext* wc = nullptr;
     int outLen = 0;
     bool devMode = false;
-    bool transmitting_wrench = false;
+    uint8_t* dev_upload_code = nullptr;
+    size_t dev_upload_size = 0;
 };
